@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+Cooking_Dataset/*
+metric_sample.txt
+
 # C extensions
 *.so
 
