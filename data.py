@@ -5,13 +5,19 @@ from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_se
 
 
 ## constants
+ING_START = "<INGREDIENT_START>"
+ING = "<INGREDIENT>"
+ING_END = "<INGREDIENT_END>"
+REC_START = "<RECIPE_START>"
+REC = "<RECIPE_STEP>"
+REC_END = "<RECIPE_END>"
 SPECIAL_TAGS = {
-    "<INGREDIENT_START>": 0,
-    "<INGREDIENT>": 1,
-    "<INGREDIENT_END>": 2,
-    "<RECIPE_START>": 3,
-    "<RECIPE_STEP>": 4,
-    "<RECIPE_END>": 5
+    ING_START: 0,
+    ING: 1,
+    ING_END: 2,
+    REC_START: 3,
+    REC: 4,
+    REC_END: 5
 }
 
 PAD_WORD = "<PAD>"

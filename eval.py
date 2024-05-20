@@ -1,7 +1,25 @@
 import re
+import torch
 import json
 from nltk.translate.bleu_score import corpus_bleu
 from nltk.translate import meteor
+
+ING_START = "<INGREDIENT_START>"
+ING = "<INGREDIENT>"
+ING_END = "<INGREDIENT_END>"
+REC_START = "<RECIPE_START>"
+REC = "<RECIPE_STEP>"
+REC_END = "<RECIPE_END>"
+
+SPECIAL_TAGS = {
+    ING_START: 0,
+    ING: 1,
+    ING_END: 2,
+    REC_START: 3,
+    REC: 4,
+    REC_END: 5
+}
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def get_ingredients_regex(ingredients_lst):
     return r'\b(?:' + '|'.join(re.escape(i) for i in ingredients_lst) + r')\b'
@@ -103,3 +121,71 @@ def load_metric_sample(fpath):
 
     return metric_sample_ings, metric_sample_gold_recipe, metric_sample_generated_recipe
 
+
+def get_predictions_iter(ingredients, ing_lens, encoder, decoder, 
+                         vocab, max_recipe_len=600):
+    """Get predictions from trained model for a single iteration. Processes batched data.
+    NOTE: ensure that this function is wrapped in `with torch.no_grad():`
+
+    Args:
+        ingredients (torch.Tensor): padded ingredients tensor in idx form; 
+                                    shape [N, L_i], where L_i = max ingredients length in batch
+        ing_lens (torch.Tensor): unpadded length of ingredients; shape [N]
+        rec_lens (torch.Tensor): unpadded length of recipes; shape [N]
+        encoder (EncoderRNN): encoder RNN module
+        decoder (DecoderRNN): decoder RNN module
+    """
+    assert encoder.training is False and decoder.training is False
+
+    N = ingredients.size(0)
+
+    ## feed ingredients through encoder
+    # enc_out: padded encoder output tensor with shape [N, L, H]
+    # enc_out_lens: unpadded sequence lengths; tensor with shape [N]
+    # enc_h_final: final hidden state: [num_layers=1, N, H]
+    enc_out, enc_out_lens, enc_h_final = encoder(ingredients, ing_lens)
+    
+    # initialize decoder hidden state as final encoder hidden state
+    decoder_hidden = enc_h_final
+
+    # List[List[str]]
+    all_decoder_outs = [[] for _ in range(N)] # stores the decoder outputs for each batch sample
+
+    valid = torch.ones([N], device=DEVICE).bool() # Tensor[N] 
+    decoder_input = torch.full([N], SPECIAL_TAGS[REC_START], dtype=torch.long, device=DEVICE)
+    for _ in range(max_recipe_len-1): # generations are bounded by max length
+        decoder_hidden_i = decoder_hidden[:, valid] # [1, N_valid, H]
+
+        # decoder_out: log probabilities over vocab; [N_valid, |Vocab|-1]
+        # decoder_hfinal: final hidden state; [num_layers=1, N_valid, H]
+        decoder_out, decoder_hidden_i = decoder(decoder_input, decoder_hidden_i)
+
+        # decoder_tok_preds: token with highest log probability
+        decoder_tok_preds = decoder_out.topk(1)[1].squeeze() # [N_valid]
+
+        ## store generated output
+        for valid_n in valid.nonzero():
+            valid_idx = valid_n.item()
+            all_decoder_outs[valid_idx].append(
+                vocab.index2word[decoder_tok_preds[valid_idx]]) # str
+
+        ## check for end of recipe
+        not_eor = (decoder_tok_preds != SPECIAL_TAGS[REC_END]) # [N_valid]
+        # update valid
+        valid = torch.logical_and(valid, not_eor)
+
+        # update decoder input for next iteration
+        decoder_input = decoder_tok_preds[valid] # [N_valid_next]
+
+        # update only valid decoder_hidden
+        decoder_hidden[:, valid] = decoder_hidden_i
+
+        if valid.sum() < 1:
+            break
+    else: # if did not break meaning 1 or more exceeded max generation limit
+        # forcably insert recipe stop tok at the end
+        for valid_n in valid.nonzero():
+            valid_idx = valid_n.item()
+            all_decoder_outs[valid_idx].append(REC_END)
+
+    return all_decoder_outs
