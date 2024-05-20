@@ -77,7 +77,7 @@ def train_iter(ingredients, recipes, ing_lens, rec_lens, encoder, decoder, encod
         # because we ensured that input cannot be end token, there is a guaranteed non-padding token
         # for each valid batch sample
         gt_i = recipes[valid, di+1] # [N_valid]
-        assert (gt_i != vocab.word2index[PAD_WORD]).all(), f"gt_i should not have padding but got: {gt_i}"
+        assert (gt_i != vocab.word2index(PAD_WORD)).all(), f"gt_i should not have padding but got: {gt_i}"
         all_gt.append(gt_i)
 
         # update only valid decoder_hidden

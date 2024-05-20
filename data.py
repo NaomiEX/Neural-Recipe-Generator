@@ -21,6 +21,7 @@ SPECIAL_TAGS = {
 }
 
 PAD_WORD = "<PAD>"
+UNKNOWN_WORD = "<UNKNOWN>"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 ##
@@ -95,19 +96,27 @@ class Vocabulary:
     def __init__(self):
         """Vocabulary class which can convert a valid word to unique index and converting the index back to word."""
         ## initialize
-        self.word2index = SPECIAL_TAGS
+        self._word2index = SPECIAL_TAGS
         self.word2count = {k: 0 for k in SPECIAL_TAGS.keys()}
         self.index2word = {v:k for k,v in SPECIAL_TAGS.items()}
         self.n_unique_words = len(self.index2word) # total number of words in the dictionary.
 
+    def __len__(self):
+        return len(self._word2index)
+
     def add_word(self, word):
-        if word not in self.word2index:
-            self.word2index[word] = self.n_unique_words
+        if word not in self._word2index:
+            self._word2index[word] = self.n_unique_words
             self.index2word[self.n_unique_words] = word
             self.n_unique_words += 1
             self.word2count[word] = 1
         else:
             self.word2count[word] += 1
+
+    def word2index(self, word):
+        if word not in self._word2index:
+            return self._word2index[UNKNOWN_WORD]
+        return self._word2index[word]
 
     def add_sentence(self, sentence):
         for word in sentence.split(' '):
@@ -117,12 +126,16 @@ class Vocabulary:
         # NOTE: should be called after finished with building vocab
         self.add_word(PAD_WORD)
 
+    def add_unknown(self):
+        self.add_word(UNKNOWN_WORD)
+
     def populate(self, df):
         for rowid in tqdm(range(len(df))):
             df_row = df.iloc[rowid]
             for i in range(2):
                 self.add_sentence(df_row.iloc[i])
         self.add_padding() # padding should be last in the vocabulary (for convenience in decoder)
+        self.add_unknown() # unknown word is for words in the dev/test not present in train
 
 class RecipeDataset(Dataset):
     def __init__(self, df, vocab):
@@ -140,9 +153,9 @@ class RecipeDataset(Dataset):
     
     def __getitem__(self, index):
         row = self.ingredient_recipe_df.iloc[index]
-        ingredient_tens = torch.tensor([self.vocab.word2index[w] for w in row.Ingredients.split(" ")],
+        ingredient_tens = torch.tensor([self.vocab.word2index(w) for w in row.Ingredients.split(" ")],
                                        dtype=torch.long, device=DEVICE)
-        recipe_tens = torch.tensor([self.vocab.word2index[w] for w in row.Recipe.split(" ")],
+        recipe_tens = torch.tensor([self.vocab.word2index(w) for w in row.Recipe.split(" ")],
                                        dtype=torch.long, device=DEVICE)
         return (ingredient_tens, recipe_tens)
     
@@ -158,8 +171,8 @@ def pad_collate(vocab):
         ingr_lens = torch.tensor([len(x) for x in ingredients], dtype=torch.long, device=DEVICE)
         recipe_lens = torch.tensor([len(r) for r in recipes], dtype=torch.long, device=DEVICE)
 
-        ingredients_padded = pad_sequence(ingredients, batch_first=True, padding_value=vocab.word2index[PAD_WORD])
-        recipes_padded = pad_sequence(recipes, batch_first=True, padding_value=vocab.word2index[PAD_WORD])
+        ingredients_padded = pad_sequence(ingredients, batch_first=True, padding_value=vocab.word2index(PAD_WORD))
+        recipes_padded = pad_sequence(recipes, batch_first=True, padding_value=vocab.word2index(PAD_WORD))
 
         return ingredients_padded, recipes_padded, ingr_lens, recipe_lens
     

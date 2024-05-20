@@ -149,7 +149,7 @@ def get_predictions_iter(ingredients, ing_lens, encoder, decoder,
     decoder_hidden = enc_h_final
 
     # List[List[str]]
-    all_decoder_outs = [[] for _ in range(N)] # stores the decoder outputs for each batch sample
+    all_decoder_outs = [[REC_START] for _ in range(N)] # stores the decoder outputs for each batch sample
 
     valid = torch.ones([N], device=DEVICE).bool() # Tensor[N] 
     decoder_input = torch.full([N], SPECIAL_TAGS[REC_START], dtype=torch.long, device=DEVICE)
@@ -161,21 +161,21 @@ def get_predictions_iter(ingredients, ing_lens, encoder, decoder,
         decoder_out, decoder_hidden_i = decoder(decoder_input, decoder_hidden_i)
 
         # decoder_tok_preds: token with highest log probability
-        decoder_tok_preds = decoder_out.topk(1)[1].squeeze() # [N_valid]
+        decoder_topk_preds = decoder_out.topk(1)[1].squeeze() # [N_valid]
 
         ## store generated output
         for valid_n in valid.nonzero():
             valid_idx = valid_n.item()
             all_decoder_outs[valid_idx].append(
-                vocab.index2word[decoder_tok_preds[valid_idx]]) # str
+                vocab.index2word[decoder_topk_preds[valid_idx].item()]) # str
 
         ## check for end of recipe
-        not_eor = (decoder_tok_preds != SPECIAL_TAGS[REC_END]) # [N_valid]
+        not_eor = (decoder_topk_preds != SPECIAL_TAGS[REC_END]) # [N_valid]
         # update valid
         valid = torch.logical_and(valid, not_eor)
 
         # update decoder input for next iteration
-        decoder_input = decoder_tok_preds[valid] # [N_valid_next]
+        decoder_input = decoder_topk_preds[valid] # [N_valid_next]
 
         # update only valid decoder_hidden
         decoder_hidden[:, valid] = decoder_hidden_i
