@@ -138,7 +138,7 @@ class Vocabulary:
         self.add_unknown() # unknown word is for words in the dev/test not present in train
 
 class RecipeDataset(Dataset):
-    def __init__(self, df, vocab):
+    def __init__(self, df, vocab, train=True):
         """
         Args:
             df (pd.DataFrame): dataframe with two columns: "Ingredients" and "Recipe"
@@ -147,6 +147,7 @@ class RecipeDataset(Dataset):
         super().__init__()
         self.ingredient_recipe_df = df
         self.vocab = vocab
+        self.train = train
 
     def __len__(self):
         return len(self.ingredient_recipe_df)
@@ -155,24 +156,35 @@ class RecipeDataset(Dataset):
         row = self.ingredient_recipe_df.iloc[index]
         ingredient_tens = torch.tensor([self.vocab.word2index(w) for w in row.Ingredients.split(" ")],
                                        dtype=torch.long, device=DEVICE)
-        recipe_tens = torch.tensor([self.vocab.word2index(w) for w in row.Recipe.split(" ")],
-                                       dtype=torch.long, device=DEVICE)
+        if self.train:
+            recipe_tens = torch.tensor([self.vocab.word2index(w) for w in row.Recipe.split(" ")],
+                                        dtype=torch.long, device=DEVICE)
+        else:
+            recipe_tens = row.Recipe.split(" ") # List[str]
         return (ingredient_tens, recipe_tens)
     
 # inspired by https://suzyahyah.github.io/pytorch/2019/07/01/DataLoader-Pad-Pack-Sequence.html
-def pad_collate(vocab):
+def pad_collate(vocab, train=True):
 
     def _pad_collate(batch):
         # print(len(batch))
         # print(batch[0])
         # ingredients: tuple of len batch_size with Tensor elements containing all ingredients in batch
         # recipes: tuple of len batch_size with Tensor elements containing all recipes in batch
+        #           (or in eval:) tuple of len batch_size with elements List[str]
+        # print(batch)
         ingredients, recipes = zip(*batch)
+        # print(ingredients)
+        # print(recipes)
         ingr_lens = torch.tensor([len(x) for x in ingredients], dtype=torch.long, device=DEVICE)
-        recipe_lens = torch.tensor([len(r) for r in recipes], dtype=torch.long, device=DEVICE)
-
         ingredients_padded = pad_sequence(ingredients, batch_first=True, padding_value=vocab.word2index(PAD_WORD))
-        recipes_padded = pad_sequence(recipes, batch_first=True, padding_value=vocab.word2index(PAD_WORD))
+
+        if train:
+            recipe_lens = torch.tensor([len(r) for r in recipes], dtype=torch.long, device=DEVICE)
+            recipes_padded = pad_sequence(recipes, batch_first=True, padding_value=vocab.word2index(PAD_WORD))
+        else:
+            recipe_lens = None
+            recipes_padded = list(recipes)
 
         return ingredients_padded, recipes_padded, ingr_lens, recipe_lens
     

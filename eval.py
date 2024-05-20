@@ -1,8 +1,12 @@
 import re
 import torch
 import json
+from torch.utils.data import DataLoader
 from nltk.translate.bleu_score import corpus_bleu
 from nltk.translate import meteor
+from tqdm import tqdm
+
+from data import pad_collate
 
 ING_START = "<INGREDIENT_START>"
 ING = "<INGREDIENT>"
@@ -39,23 +43,26 @@ def find_ingredients_in_text(txt, regex, enforce_unique=True):
         res = set(res)
     return res
 
-def calc_bleu(gt_recipes, gen_recipes, split_gt=True, split_gen=False):
+def calc_bleu(gt_recipes, gen_recipes, split_gt=False, split_gen=False):
     """Calculate corpus BLEU-4 score.
 
     Args:
         gt_recipes (List): len N
         gen_recipes (List[List] or List): 
     """
-    gt_recipes_lst2 = [[gt.split()] if split_gt else [[gt]] for gt in gt_recipes]
+    gt_recipes_lst2 = [[gt.split()] if split_gt else [gt] for gt in gt_recipes]
     if split_gen:
         gen_recipes = [r.split() for r in gen_recipes]
     return corpus_bleu(gt_recipes_lst2, gen_recipes)
 
-def calc_meteor(gt_recipes, gen_recipes, split_gt=True, split_gen=False):
-    gt_recipes_lst2 = [gt.split() if split_gt else [gt] for gt in gt_recipes]
+def calc_meteor(gt_recipes, gen_recipes, split_gt=False, split_gen=False):
+    if split_gt:
+        gt_recipes_lst2 = [gt.split() for gt in gt_recipes]
+    else:
+        gt_recipes_lst2 = gt_recipes
 
     meteor_score = 0
-    for i in range(len(gen_recipes)):
+    for i in tqdm(range(len(gen_recipes))):
         generated_recipe = gen_recipes[i].split() if split_gen else gen_recipes[i]
         gt_recipes_i = gt_recipes_lst2[i]
         meteor_score += meteor([gt_recipes_i], generated_recipe)
@@ -122,8 +129,7 @@ def load_metric_sample(fpath):
     return metric_sample_ings, metric_sample_gold_recipe, metric_sample_generated_recipe
 
 
-def get_predictions_iter(ingredients, ing_lens, encoder, decoder, 
-                         vocab, max_recipe_len=600):
+def get_predictions_iter(ingredients, ing_lens, encoder, decoder, vocab, max_recipe_len=600):
     """Get predictions from trained model for a single iteration. Processes batched data.
     NOTE: ensure that this function is wrapped in `with torch.no_grad():`
 
@@ -161,24 +167,28 @@ def get_predictions_iter(ingredients, ing_lens, encoder, decoder,
         decoder_out, decoder_hidden_i = decoder(decoder_input, decoder_hidden_i)
 
         # decoder_tok_preds: token with highest log probability
-        decoder_topk_preds = decoder_out.topk(1)[1].squeeze() # [N_valid]
+        decoder_topk_preds = decoder_out.topk(1)[1].reshape(-1) # [N_valid]
 
         ## store generated output
-        for valid_n in valid.nonzero():
+        for dec_idx, valid_n in zip(range(len(decoder_topk_preds)), valid.nonzero()):
             valid_idx = valid_n.item()
             all_decoder_outs[valid_idx].append(
-                vocab.index2word[decoder_topk_preds[valid_idx].item()]) # str
+                vocab.index2word[decoder_topk_preds[dec_idx].item()]) # str
 
         ## check for end of recipe
-        not_eor = (decoder_topk_preds != SPECIAL_TAGS[REC_END]) # [N_valid]
+        not_eor= decoder_topk_preds != SPECIAL_TAGS[REC_END] # [N_valid]
         # update valid
-        valid = torch.logical_and(valid, not_eor)
+        valid_temp = valid.clone() # to avoid single mem location error
+        valid_temp[valid] = not_eor
+        valid = valid_temp
+        del valid_temp
+        # valid = torch.logical_and(valid, not_eor)
 
         # update decoder input for next iteration
-        decoder_input = decoder_topk_preds[valid] # [N_valid_next]
+        decoder_input = decoder_topk_preds[not_eor] # [N_valid_next]
 
         # update only valid decoder_hidden
-        decoder_hidden[:, valid] = decoder_hidden_i
+        decoder_hidden[:, valid] = decoder_hidden_i[:, not_eor]
 
         if valid.sum() < 1:
             break
@@ -189,3 +199,31 @@ def get_predictions_iter(ingredients, ing_lens, encoder, decoder,
             all_decoder_outs[valid_idx].append(REC_END)
 
     return all_decoder_outs
+
+def eval(encoder, decoder, dataset, vocab, batch_size=4, max_recipe_len=600):
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=pad_collate(vocab, train=False))
+
+    all_decoder_outs = [] # (List[List[str]]): List of len `N`, each element is the generated sequence for that sample
+    all_gt_recipes = [] # (List[List[str]])
+
+    encoder.eval()
+    decoder.eval()
+
+    with torch.no_grad():
+        for ingredients, recipes, ing_lens, _ in tqdm(dataloader):
+            # ingredients: Tensor[N, L_i] padded ingredients
+            # recipes (List[List[str]]): list of len N, each element is a
+            #                               list of len `|gt_i|`, which is the length of the i-th ground-truth sequence
+
+            # dec_outs (List[List[str]]): list of len `batch_size`, each element is a 
+            #                               list of len `gen_size`, which is the size of the generated sequence, and each element is a 
+            #                                   str representing a single word in the generated recipe
+            dec_outs = get_predictions_iter(ingredients, ing_lens, encoder, decoder, vocab, 
+                                            max_recipe_len=max_recipe_len)
+            
+            all_decoder_outs += dec_outs
+            all_gt_recipes += recipes
+
+    # TODO: INTEGRATE CALCULATION OF METRICS IN HERE ONCE STABLE
+    
+    return all_decoder_outs, all_gt_recipes
