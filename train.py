@@ -123,7 +123,6 @@ def train(encoder, decoder, encoder_optimizer, decoder_optimizer, dataset, n_epo
                                    )
             epoch_loss += loss
             print_epoch_loss += loss
-            break
         epoch_loss /= total_iters # get average epoch loss
         if verbose: print(f"Average epoch loss: {epoch_loss:.3f}")
         epoch_losses[epoch]=epoch_loss
