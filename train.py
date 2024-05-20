@@ -1,3 +1,4 @@
+import time
 import torch
 from torch import nn, optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -113,6 +114,8 @@ def train(encoder, decoder, encoder_optimizer, decoder_optimizer, dataset, n_epo
                             if use_scheduler else "")
         epoch_loss = 0 # accumulate total loss during epoch
         print_epoch_loss = 0 # accumulate losses for printing
+
+        start_epoch_time = time.time()
         for iter_idx, (ingredients, recipes, ing_lens, rec_lens) in enumerate(dataloader):
             if verbose and iter_idx > 0  and iter_idx % verbose_iter_interval == 0:
                 print(f"(Epoch {epoch}, iter {iter_idx}/{total_iters}) Average loss so far: {print_epoch_loss/verbose_iter_interval:.3f}")
@@ -123,8 +126,16 @@ def train(encoder, decoder, encoder_optimizer, decoder_optimizer, dataset, n_epo
                                    )
             epoch_loss += loss
             print_epoch_loss += loss
+        end_epoch_time = time.time()
         epoch_loss /= total_iters # get average epoch loss
-        if verbose: print(f"Average epoch loss: {epoch_loss:.3f}")
+        if verbose: 
+            one_epoch_time_sec = end_epoch_time - start_epoch_time
+            remaining_epochs = n_epochs - epoch - 1
+            remaining_time = one_epoch_time_sec * remaining_epochs
+            remaining_time_hours = remaining_time //3600
+            remaining_time_mins = remaining_time % 3600 // 60
+            print(f"Average epoch loss: {epoch_loss:.3f}")
+            print(f"This epoch took {one_epoch_time_sec / 60} mins. Time remaining: {remaining_time_hours} hrs {remaining_time_mins} mins.")
         epoch_losses[epoch]=epoch_loss
         if use_scheduler:
             enc_lr_scheduler.step()
