@@ -8,22 +8,7 @@ from tqdm import tqdm
 
 from data import pad_collate
 
-ING_START = "<INGREDIENT_START>"
-ING = "<INGREDIENT>"
-ING_END = "<INGREDIENT_END>"
-REC_START = "<RECIPE_START>"
-REC = "<RECIPE_STEP>"
-REC_END = "<RECIPE_END>"
-
-SPECIAL_TAGS = {
-    ING_START: 0,
-    ING: 1,
-    ING_END: 2,
-    REC_START: 3,
-    REC: 4,
-    REC_END: 5
-}
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+from constants import *
 
 def get_ingredients_regex(ingredients_lst):
     return r'\b(?:' + '|'.join(re.escape(i) for i in ingredients_lst) + r')\b'

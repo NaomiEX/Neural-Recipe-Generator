@@ -3,28 +3,7 @@ from tqdm import tqdm
 from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
 
-
-## constants
-ING_START = "<INGREDIENT_START>"
-ING = "<INGREDIENT>"
-ING_END = "<INGREDIENT_END>"
-REC_START = "<RECIPE_START>"
-REC = "<RECIPE_STEP>"
-REC_END = "<RECIPE_END>"
-SPECIAL_TAGS = {
-    ING_START: 0,
-    ING: 1,
-    ING_END: 2,
-    REC_START: 3,
-    REC: 4,
-    REC_END: 5
-}
-
-PAD_WORD = "<PAD>"
-UNKNOWN_WORD = "<UNKNOWN>"
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-##
+from constants import *
 
 def replace(df, patterns, replacements, columns, regex=False):
     # patterns: List[str]
@@ -39,16 +18,17 @@ def replace(df, patterns, replacements, columns, regex=False):
         df[col] = df[col].str.replace(pat, rep, regex=regex)
 
 
-def add_tags(df):
+def add_tags(df, add_intermediate_tag=False):
     assert 'Ingredients' in df.columns and 'Recipe' in df.columns
 
-    replace(df, ['\t'], ' <INGREDIENT> ', 'Ingredients')
+    replace(df, ['\t'], ' <INGREDIENT> ' if add_intermediate_tag else ' ', 'Ingredients')
     df.Ingredients = '<INGREDIENT_START> ' + df.Ingredients + ' <INGREDIENT_END>'
 
-    replace(df, ['.', ';'], ' <RECIPE_STEP> ', 'Recipe')
+    replace(df, ['.', ';'], ' <RECIPE_STEP> ' if add_intermediate_tag else ' ', 'Recipe')
     df.Recipe = '<RECIPE_START> ' + df.Recipe + ' <RECIPE_END>'
 
-def preprocess_data(orig_df, max_ingr_len=150, max_recipe_len=600, min_recipe_len=5, min_ingredients=1):
+def preprocess_data(orig_df, max_ingr_len=150, max_recipe_len=600, min_recipe_len=5, min_ingredients=1,
+                    add_intermediate_tag=False):
     df = orig_df.copy() # ensure original data is not mutated (mostly for verification purposes)
 
     ## drop NA
@@ -64,9 +44,11 @@ def preprocess_data(orig_df, max_ingr_len=150, max_recipe_len=600, min_recipe_le
     replace(df, ["([^0-9a-zA-Z.'\"/ ])"]*2, r" \1 ", ['Ingredients', 'Recipe'], regex=True)
     # add spaces around periods (excluding decimal places)
     replace(df, [r"\.(?!\d)"]*2, r" . ", ['Ingredients', 'Recipe'], regex=True)
+    # add spaces around word/word
+    replace(df, [r"([^0-9])\/([^0-9])"]*2, r"\1 / \2", ['Ingredients', 'Recipe'], regex=True)
 
     ## add tags for ingredients and recipes
-    add_tags(df)
+    add_tags(df, add_intermediate_tag=add_intermediate_tag)
 
     ## replace >1 whitespace with a single space
     replace(df, ['[ ]{2,}']*2, " ", ['Ingredients', 'Recipe'], regex=True)
@@ -75,17 +57,21 @@ def preprocess_data(orig_df, max_ingr_len=150, max_recipe_len=600, min_recipe_le
     df.Ingredients = df.Ingredients.str.strip()
     df.Recipe = df.Recipe.str.strip()
 
-    ## remove consecutive tags, for ex. <INGREDIENT>[0 or more whitespace]<INGREDIENT>
-    replace(df, ["<INGREDIENT>[ \t\n]*([ \t\n]*<INGREDIENT>)+", "<RECIPE_STEP>[ \t\n]*([ \t\n]*<RECIPE_STEP>)+"], 
-    ["<INGREDIENT>", "<RECIPE_STEP>"], ["Ingredients", "Recipe"], regex=True)
+    if add_intermediate_tag:
+        ## remove consecutive tags, for ex. <INGREDIENT>[0 or more whitespace]<INGREDIENT>
+        replace(df, ["<INGREDIENT>[ \t\n]*([ \t\n]*<INGREDIENT>)+", "<RECIPE_STEP>[ \t\n]*([ \t\n]*<RECIPE_STEP>)+"], 
+        ["<INGREDIENT>", "<RECIPE_STEP>"], ["Ingredients", "Recipe"], regex=True)
 
     ## filter out recipes and ingredients above/below limit
     recipe_lens = df.Recipe.apply(lambda r: len(r.split()))
     df = df[(recipe_lens > min_recipe_len) & (recipe_lens < max_recipe_len)]
     df = df[df.Ingredients.apply(lambda i: len(i.split())) < max_ingr_len]
 
-    ## filter out those with <1 ingredients
-    df = df[df.Ingredients.str.count('<INGREDIENT>') >= min_ingredients]
+    if add_intermediate_tag:
+        ## filter out those with <1 ingredients
+        df = df[df.Ingredients.str.count('<INGREDIENT>') >= min_ingredients]
+
+    df = df.reset_index(drop=True)
 
     print(f"Number of data samples before preprocessing: {len(orig_df)}\n"
           f"Number of data samples after preprocessing: {len(df)} ({len(df) * 100/len(orig_df):.3f}%)")
@@ -93,12 +79,16 @@ def preprocess_data(orig_df, max_ingr_len=150, max_recipe_len=600, min_recipe_le
     return df
 
 class Vocabulary:
-    def __init__(self):
+    def __init__(self, add_intermediate_tag=False):
         """Vocabulary class which can convert a valid word to unique index and converting the index back to word."""
+        special_tags = SPECIAL_TAGS
+        if not add_intermediate_tag:
+            special_tags.pop(ING)
+            special_tags.pop(REC)
         ## initialize
-        self._word2index = SPECIAL_TAGS
-        self.word2count = {k: 0 for k in SPECIAL_TAGS.keys()}
-        self.index2word = {v:k for k,v in SPECIAL_TAGS.items()}
+        self._word2index = special_tags
+        self.word2count = {k: 0 for k in special_tags.keys()}
+        self.index2word = {v:k for k,v in special_tags.items()}
         self.n_unique_words = len(self.index2word) # total number of words in the dictionary.
 
     def __len__(self):

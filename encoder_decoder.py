@@ -3,9 +3,7 @@ from torch import nn
 import torch.nn.functional as F
 from data import pack, unpack
 
-## constants
-MAX_INGR_LEN = 150 # fixed from assignment
-
+from constants import MAX_INGR_LEN
 
 class EncoderRNN(nn.Module):
     def __init__(self,

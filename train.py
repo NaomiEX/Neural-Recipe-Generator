@@ -5,12 +5,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 from data import pad_collate
 
-## constants
-from data import PAD_WORD
-TEACHER_FORCING_RATIO = 1.0
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-PAD_WORD = "<PAD>"
-##
+from constants import *
 
 def train_decoder_iter(decoder, decoder_hidden, decoder_cell, encoder_houts, 
                        ingredients, recipes, padded_rec_len, rec_lens,
