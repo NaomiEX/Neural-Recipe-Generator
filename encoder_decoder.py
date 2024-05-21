@@ -10,6 +10,7 @@ MAX_INGR_LEN = 150 # fixed from assignment
 class EncoderRNN(nn.Module):
     def __init__(self,
                  input_size,
+                 embedding_size,
                  hidden_size,
                  padding_value,
                  ):
@@ -21,8 +22,8 @@ class EncoderRNN(nn.Module):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.embedding = nn.Embedding(input_size, hidden_size)
-        self.lstm = nn.LSTM(hidden_size, hidden_size, batch_first=True)
+        self.embedding = nn.Embedding(input_size, embedding_size)
+        self.lstm = nn.LSTM(embedding_size, hidden_size, batch_first=True)
         self.padding_value = padding_value
 
     def forward(self, ingredients, ing_lens):
@@ -33,7 +34,7 @@ class EncoderRNN(nn.Module):
             ingredients (torch.Tensor): padded ingredients of shape [N, L], where N=batch size and L=longest sequence length in batch
         """
         ## embed ingredients
-        ingredients_embed = self.embedding(ingredients) # [N, L, H]
+        ingredients_embed = self.embedding(ingredients) # [N, L, E]
 
         ## pack padded ingredients tensor before feeding through LSTM (this allows the lstm to optimize operations, ignoring padding)
         ingredients_packed = pack(ingredients_embed, ing_lens)
@@ -55,6 +56,7 @@ class EncoderRNN(nn.Module):
 #! IMPORTANT: MAKE SURE DECODER'S OUTPUT SIZE IS VOCAB SIZE - 1
 class DecoderRNN(nn.Module):
     def __init__(self,
+                 embedding_size,
                  hidden_size,
                  output_size
                  ):
@@ -66,8 +68,8 @@ class DecoderRNN(nn.Module):
         """
         super().__init__()
         self.hidden_size = hidden_size
-        self.embedding = nn.Embedding(output_size, hidden_size)
-        self.lstm = nn.LSTM(hidden_size, hidden_size, batch_first=False)
+        self.embedding = nn.Embedding(output_size, embedding_size)
+        self.lstm = nn.LSTM(embedding_size, hidden_size, batch_first=False)
         self.nonlinear_activation = nn.Tanh()
         self.out_fc = nn.Linear(hidden_size, output_size)
         self.logsoftmax = nn.LogSoftmax(dim=1)
@@ -82,7 +84,7 @@ class DecoderRNN(nn.Module):
             hidden (torch.Tensor): encoder last hidden state; shape [1, N, H]
         """
         ## embed token input
-        inp_embedded = self.embedding(inp)[None] # [L=1, N, H]
+        inp_embedded = self.embedding(inp)[None] # [L=1, N, E]
 
         ## apply non-linear activation
         inp_embedded = self.nonlinear_activation(inp_embedded)
@@ -102,7 +104,7 @@ class DecoderRNN(nn.Module):
         return out, h_final
     
 class AttnDecoderRNN(nn.Module):
-    def __init__(self, hidden_size, output_size, padding_val,
+    def __init__(self, embedding_size, hidden_size, output_size, padding_val,
                  dropout=0.1, global_max_ing_len=MAX_INGR_LEN,
                  ):
         super().__init__()
@@ -110,9 +112,9 @@ class AttnDecoderRNN(nn.Module):
         self.padding_val = padding_val
         self.global_max_ing_len = global_max_ing_len
 
-        self.embedding = nn.Embedding(output_size, hidden_size)
-        self.attn = nn.Linear(hidden_size * 2, global_max_ing_len)
-        self.attn_combine = nn.Linear(hidden_size*2, hidden_size)
+        self.embedding = nn.Embedding(output_size, embedding_size)
+        self.attn = nn.Linear(hidden_size + embedding_size, global_max_ing_len)
+        self.attn_combine = nn.Linear(hidden_size + embedding_size, hidden_size)
         self.dropout = nn.Dropout(dropout)
         self.lstm = nn.LSTM(hidden_size, hidden_size, batch_first=False)
         self.nonlinear_activation = nn.ReLU() # TODO: TRY TANH
@@ -146,13 +148,13 @@ class AttnDecoderRNN(nn.Module):
         """
         L_i = encoder_houts.size(1) # max seq len in this batch
         ## embed token input
-        inp_embedded = self.embedding(inp) # [N, H]
+        inp_embedded = self.embedding(inp) # [N, E]
 
         inp_embedded = self.dropout(inp_embedded)
 
         attn_weights = self.attn(
-            torch.cat((inp_embedded, hidden[0]), dim=1) # [N, H*2]
-        )[:, :L_i] # [N, H*2] -> [N, L_i]
+            torch.cat((inp_embedded, hidden[0]), dim=1) # [N, E+H]
+        )[:, :L_i] # [N, max_ing_len] -> [N, L_i]
         # [N, L_i]
         attn_weights = F.softmax(
             self.mask_attn_weights(ingredients, attn_weights),
@@ -160,9 +162,9 @@ class AttnDecoderRNN(nn.Module):
         # [N, 1, L_i] bmm [N, L_i, H] = [N, 1, H] -> [N, H]
         attn_res = torch.bmm(attn_weights[:, None], encoder_houts)[:, 0]
 
-        # [N, H*2]
+        # [N, E+H]
         output = torch.cat((inp_embedded, attn_res), dim=-1)
-        # [N, H*2] -> [N, H] -> [L=1, N, H]
+        # [N, E+H] -> [N, H] -> [L=1, N, H]
         output = self.attn_combine(output)[None]
         output = self.nonlinear_activation(output)
 
