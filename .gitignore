@@ -6,6 +6,7 @@ __pycache__/
 Cooking_Dataset/*
 metric_sample.txt
 log*.txt
+saved_models/*
 
 # C extensions
 *.so
