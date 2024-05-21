@@ -9,11 +9,48 @@ from data import pad_collate
 from data import PAD_WORD
 TEACHER_FORCING_RATIO = 1.0
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+PAD_WORD = "<PAD>"
 ##
 
+def train_decoder_iter(decoder, decoder_hidden, encoder_houts, 
+                       ingredients, recipes, padded_rec_len, rec_lens,
+                       pad_word_idx, decoder_mode="basic"):
+    assert decoder_mode in ["basic", "attention"]
+
+    all_decoder_outs = [] # List of [N, |Vocab|-1]
+    all_gt = [] # List of [N]
+    ## NOTE: recipes already contain start token no need to add manually
+    encoder_houts_i = encoder_houts # [N, L_i, H]
+    for di in range(padded_rec_len-1):
+        # get batches which have valid (non-padding and non ending) tokens as input
+        valid = (rec_lens - 1) > di
+        decoder_input_i = recipes[valid, di] # [N_valid]
+        decoder_hidden_i = decoder_hidden[:,valid] # [1, N_valid, H]
+
+        if decoder_mode == "basic":
+            # decoder_out: log probabilities over vocab; [N_valid, |Vocab|-1]
+            # decoder_hfinal: final hidden state; [num_layers=1, N_valid, H]
+            decoder_out, decoder_hidden_i = decoder(decoder_input_i, decoder_hidden_i)
+            attn_weights = None
+        elif decoder_mode == "attention":
+            encoder_houts_i = encoder_houts[valid] # [N_valid, L_i, H]
+            decoder_out, decoder_hidden_i, attn_weights_i =decoder(
+                decoder_input_i, decoder_hidden_i, encoder_houts_i, ingredients)
+
+        all_decoder_outs.append(decoder_out)
+
+        # because we ensured that input cannot be end token, there is a guaranteed non-padding token
+        # for each valid batch sample
+        gt_i = recipes[valid, di+1] # [N_valid]
+        assert (gt_i != pad_word_idx).all(), f"gt_i should not have padding but got: {gt_i}"
+        all_gt.append(gt_i)
+
+        # update only valid decoder_hidden
+        decoder_hidden[:, valid] = decoder_hidden_i
+    return all_decoder_outs, all_gt
+
 def train_iter(ingredients, recipes, ing_lens, rec_lens, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion,
-               vocab=None # !remove later
+               decoder_mode="basic", vocab=None # !remove later
                ):
     """Single training iteration. Processes batched data.
 
@@ -46,8 +83,6 @@ def train_iter(ingredients, recipes, ing_lens, rec_lens, encoder, decoder, encod
     # enc_h_final: final hidden state: [num_layers=1, N, H]
     enc_out, enc_out_lens, enc_h_final = encoder(ingredients, ing_lens)
 
-    # decoder_input = torch.full((N, 1), fill_value=vocab.word2index["<RECIPE_START>"],
-    #                            dtype=torch.long, device=DEVICE) 
     # initialize decoder hidden state as final encoder hidden state
     decoder_hidden = enc_h_final
 
@@ -55,33 +90,10 @@ def train_iter(ingredients, recipes, ing_lens, rec_lens, encoder, decoder, encod
         raise ValueError("Non-teacher forcing is not implemented")
     
     loss = 0
-    all_decoder_outs = [] # List of [N, |Vocab|-1]
-    all_gt = [] # List of [N]
 
-    ## teacher forcing
-    curr_rec_lens = rec_lens.clone()
-    ## NOTE: recipes already contain start token no need to add manually
-    ## TODO IMPORTANT: MAKE SURE DECODER'S OUTPUT SIZE IS VOCAB SIZE - 1
-    for di in range(padded_rec_len-1):
-        # get batches which have valid (non-padding and non ending) tokens as input
-        valid = (rec_lens - 1) > di
-        decoder_input_i = recipes[valid, di] # [N_valid]
-        decoder_hidden_i = decoder_hidden[:,valid] # [1, N_valid, H]
-
-        # decoder_out: log probabilities over vocab; [N_valid, |Vocab|-1]
-        # decoder_hfinal: final hidden state; [num_layers=1, N_valid, H]
-        decoder_out, decoder_hidden_i = decoder(decoder_input_i, decoder_hidden_i)
-
-        all_decoder_outs.append(decoder_out)
-
-        # because we ensured that input cannot be end token, there is a guaranteed non-padding token
-        # for each valid batch sample
-        gt_i = recipes[valid, di+1] # [N_valid]
-        assert (gt_i != vocab.word2index(PAD_WORD)).all(), f"gt_i should not have padding but got: {gt_i}"
-        all_gt.append(gt_i)
-
-        # update only valid decoder_hidden
-        decoder_hidden[:, valid] = decoder_hidden_i
+    all_decoder_outs, all_gt = train_decoder_iter(decoder, decoder_hidden, enc_out, 
+                                                  ingredients, recipes, padded_rec_len, rec_lens, 
+                                                  vocab.word2index(PAD_WORD), decoder_mode=decoder_mode)
     
     all_decoder_outs = torch.cat(all_decoder_outs, dim=0)
     all_gt = torch.cat(all_gt, dim=0)
@@ -99,7 +111,7 @@ def train_iter(ingredients, recipes, ing_lens, rec_lens, encoder, decoder, encod
     return loss.item()
 
 def train(encoder, decoder, encoder_optimizer, decoder_optimizer, dataset, n_epochs, vocab,
-          batch_size=4, enc_lr_scheduler=None, dec_lr_scheduler=None, 
+          decoder_mode="basic", batch_size=4, enc_lr_scheduler=None, dec_lr_scheduler=None, 
           verbose=True, verbose_iter_interval=10):
     assert (enc_lr_scheduler is None and dec_lr_scheduler is None) or (enc_lr_scheduler is not None and dec_lr_scheduler is not None)
     use_scheduler =  enc_lr_scheduler is not None and dec_lr_scheduler is not None
@@ -122,6 +134,7 @@ def train(encoder, decoder, encoder_optimizer, decoder_optimizer, dataset, n_epo
                 print_epoch_loss = 0
             loss = train_iter(ingredients, recipes, ing_lens, rec_lens, encoder, decoder, 
                                    encoder_optimizer, decoder_optimizer, criterion, 
+                                   decoder_mode=decoder_mode,
                                    vocab=vocab # remove later
                                    )
             epoch_loss += loss
