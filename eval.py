@@ -149,10 +149,12 @@ def get_predictions_iter(ingredients, ing_lens, encoder, decoder, vocab, max_rec
     # enc_out: padded encoder output tensor with shape [N, L, H]
     # enc_out_lens: unpadded sequence lengths; tensor with shape [N]
     # enc_h_final: final hidden state: [num_layers=1, N, H]
-    enc_out, enc_out_lens, enc_h_final = encoder(ingredients, ing_lens)
+    # enc_c_final: final cell state: [num_layers=1, N, H]
+    enc_out, enc_out_lens, enc_h_final, enc_c_final = encoder(ingredients, ing_lens)
     
     # initialize decoder hidden state as final encoder hidden state
     decoder_hidden = enc_h_final
+    decoder_cell = enc_c_final
 
     # List[List[str]]
     all_decoder_outs = [[REC_START] for _ in range(N)] # stores the decoder outputs for each batch sample
@@ -161,10 +163,11 @@ def get_predictions_iter(ingredients, ing_lens, encoder, decoder, vocab, max_rec
     decoder_input = torch.full([N], SPECIAL_TAGS[REC_START], dtype=torch.long, device=DEVICE)
     for _ in range(max_recipe_len-1): # generations are bounded by max length
         decoder_hidden_i = decoder_hidden[:, valid] # [1, N_valid, H]
+        decoder_cell_i = decoder_cell[:, valid]
 
         # decoder_out: log probabilities over vocab; [N_valid, |Vocab|-1]
         # decoder_hfinal: final hidden state; [num_layers=1, N_valid, H]
-        decoder_out, decoder_hidden_i = decoder(decoder_input, decoder_hidden_i)
+        decoder_out, decoder_hidden_i, decoder_cell_i = decoder(decoder_input, decoder_hidden_i, decoder_cell_i)
 
         # decoder_tok_preds: token with highest log probability
         decoder_topk_preds = decoder_out.topk(1)[1].reshape(-1) # [N_valid]
@@ -189,6 +192,7 @@ def get_predictions_iter(ingredients, ing_lens, encoder, decoder, vocab, max_rec
 
         # update only valid decoder_hidden
         decoder_hidden[:, valid] = decoder_hidden_i[:, not_eor]
+        decoder_cell[:, valid] = decoder_cell_i[:, not_eor]
 
         if valid.sum() < 1:
             break
