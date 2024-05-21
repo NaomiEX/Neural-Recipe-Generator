@@ -1,9 +1,53 @@
+import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
+from tqdm import tqdm
+
 from data import pack, unpack
 
 from constants import MAX_INGR_LEN
+
+def create_pretrained_embedding_dict(emb_filepath, **kwargs):
+    ## build embedding dictionary
+    pretrained_embedding_dict = dict()
+    with open(emb_filepath, "r", **kwargs) as f:
+        for line in f:
+            wi, embi = line.rstrip().split(" ", 1)
+            pretrained_embedding_dict[wi] = torch.from_numpy(np.fromstring(embi, sep=" "))
+    return pretrained_embedding_dict
+
+def create_pretrained_embeddings(pretrained_embedding_dict, input_size, embedding_size, vocab, verbose=True):
+    """
+    NOTE: input_size is typically len(vocab) although in decoder you don't need to generate
+    unknown and pad.
+    """
+    emb = torch.randn([input_size, embedding_size])
+
+    vocab_idxs_in_pretrained = []
+    vocab_words = list(vocab._word2index.keys())
+    for i in tqdm(range(input_size)):
+        word = vocab_words[i]
+        if word in pretrained_embedding_dict:
+            vocab_idxs_in_pretrained.append(i)
+            emb[i] = pretrained_embedding_dict[word]
+    
+    if verbose: 
+        print(f"{len(vocab_idxs_in_pretrained)}/{len(vocab)} ({len(vocab_idxs_in_pretrained)/len(vocab):.3f}) words have pretrained embeddings")
+
+    return emb, vocab_idxs_in_pretrained
+
+def create_embeddings(input_size, embedding_size, pretrained_embedding_dict, vocab):
+    if pretrained_embedding_dict is None:
+        return nn.Embedding(input_size, embedding_size), None
+    else:
+        assert vocab is not None
+        embeddings_w_pretrained, vocab_idxs_in_pretrained = create_pretrained_embeddings(
+            pretrained_embedding_dict, input_size, embedding_size, vocab
+        )
+        # ! For now not freezing embeddings because ~40% don't exist in pretrained embeddings
+        # plus allows for finetuning
+        return nn.Embedding.from_pretrained(embeddings_w_pretrained, freeze=False), vocab_idxs_in_pretrained
 
 class EncoderRNN(nn.Module):
     def __init__(self,
@@ -11,6 +55,8 @@ class EncoderRNN(nn.Module):
                  embedding_size,
                  hidden_size,
                  padding_value,
+                 pretrained_embedding_dict=None,
+                 vocab=None,
                  ):
         """Encoder LSTM to encode input sequence.
 
@@ -20,9 +66,15 @@ class EncoderRNN(nn.Module):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.embedding = nn.Embedding(input_size, embedding_size)
+        self.embedding, self.pretrained_emb_idxs = create_embeddings(input_size, embedding_size, pretrained_embedding_dict, vocab)
         self.lstm = nn.LSTM(embedding_size, hidden_size, batch_first=True)
         self.padding_value = padding_value
+
+    def update_embedding_grad(self, grads):
+        if not hasattr(self, "pretrained_emb_idxs"):
+            return
+        
+        grads[self.pretrained_emb_idxs] = 0 # zero-out gradients for pretrained embeddings
 
     def forward(self, ingredients, ing_lens):
         """Embed ingredients and feed through LSTM. 
@@ -56,7 +108,9 @@ class DecoderRNN(nn.Module):
     def __init__(self,
                  embedding_size,
                  hidden_size,
-                 output_size
+                 output_size,
+                 pretrained_embedding_dict=None,
+                 vocab=None,
                  ):
         """Decoder to generate recipes based on encoder output (hidden state(s)).
 
@@ -66,11 +120,18 @@ class DecoderRNN(nn.Module):
         """
         super().__init__()
         self.hidden_size = hidden_size
-        self.embedding = nn.Embedding(output_size, embedding_size)
+
+        self.embedding, self.pretrained_emb_idxs = create_embeddings(output_size, embedding_size, pretrained_embedding_dict, vocab)
         self.lstm = nn.LSTM(embedding_size, hidden_size, batch_first=False)
         self.nonlinear_activation = nn.Tanh()
         self.out_fc = nn.Linear(hidden_size, output_size)
         self.logsoftmax = nn.LogSoftmax(dim=1)
+
+    def update_embedding_grad(self, grads):
+        if not hasattr(self, "pretrained_emb_idxs"):
+            return
+        
+        grads[self.pretrained_emb_idxs] = 0 # zero-out gradients for pretrained embeddings
 
     def forward(self, inp, hidden, cell):
         """Decode one word at a time. Batch processed.
@@ -105,13 +166,15 @@ class DecoderRNN(nn.Module):
 class AttnDecoderRNN(nn.Module):
     def __init__(self, embedding_size, hidden_size, output_size, padding_val,
                  dropout=0.1, global_max_ing_len=MAX_INGR_LEN,
+                 pretrained_embedding_dict=None,
+                 vocab=None,
                  ):
         super().__init__()
         self.hidden_size = hidden_size
         self.padding_val = padding_val
         self.global_max_ing_len = global_max_ing_len
 
-        self.embedding = nn.Embedding(output_size, embedding_size)
+        self.embedding, self.pretrained_emb_idxs = create_embeddings(output_size, embedding_size, pretrained_embedding_dict, vocab)
         self.attn = nn.Linear(hidden_size + embedding_size, global_max_ing_len)
         self.attn_combine = nn.Linear(hidden_size + embedding_size, hidden_size)
         self.dropout = nn.Dropout(dropout)
@@ -119,6 +182,12 @@ class AttnDecoderRNN(nn.Module):
         self.nonlinear_activation = nn.ReLU() # TODO: TRY TANH
         self.out_fc = nn.Linear(hidden_size, output_size)
         self.logsoftmax = nn.LogSoftmax(dim=1)
+
+    def update_embedding_grad(self, grads):
+        if not hasattr(self, "pretrained_emb_idxs"):
+            return
+        
+        grads[self.pretrained_emb_idxs] = 0 # zero-out gradients for pretrained embeddings
 
     def mask_attn_weights(self, ingredients, attn_weights):
         """

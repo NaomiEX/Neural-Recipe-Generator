@@ -81,7 +81,7 @@ def preprocess_data(orig_df, max_ingr_len=150, max_recipe_len=600, min_recipe_le
 class Vocabulary:
     def __init__(self, add_intermediate_tag=False):
         """Vocabulary class which can convert a valid word to unique index and converting the index back to word."""
-        special_tags = SPECIAL_TAGS
+        special_tags = dict(SPECIAL_TAGS)
         if not add_intermediate_tag:
             special_tags.pop(ING)
             special_tags.pop(REC)

@@ -49,7 +49,7 @@ def train_decoder_iter(decoder, decoder_hidden, decoder_cell, encoder_houts,
     return all_decoder_outs, all_gt
 
 def train_iter(ingredients, recipes, ing_lens, rec_lens, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion,
-               decoder_mode="basic", vocab=None # !remove later
+               decoder_mode="basic", prevent_pretrained_grad_update=True, vocab=None # !remove later
                ):
     """Single training iteration. Processes batched data.
 
@@ -104,6 +104,24 @@ def train_iter(ingredients, recipes, ing_lens, rec_lens, encoder, decoder, encod
 
     ## backpropagation
     loss.backward()
+
+    # print("=====BEFORE MASKING=====")
+    # print("ENCODER EMBEDDING WEIGHT GRADS of shape:", encoder.embedding.weight.grad.shape)
+    # print(encoder.embedding.weight.grad[:10, :10])
+
+    # print("DECODER EMBEDDING WEIGHT GRADS of shape:", decoder.embedding.weight.grad.shape)
+    # print(decoder.embedding.weight.grad[:10, :10])
+
+    # print("=====AFTER MASKING=====")
+    if prevent_pretrained_grad_update:
+        encoder.update_embedding_grad(encoder.embedding.weight.grad)
+        decoder.update_embedding_grad(decoder.embedding.weight.grad)
+    # print("ENCODER EMBEDDING WEIGHT GRADS of shape:", encoder.embedding.weight.grad.shape)
+    # print(encoder.embedding.weight.grad[:10, :10])
+
+    # print("DECODER EMBEDDING WEIGHT GRADS of shape:", decoder.embedding.weight.grad.shape)
+    # print(decoder.embedding.weight.grad[:10, :10])
+
 
     ## update params
     encoder_optimizer.step()
