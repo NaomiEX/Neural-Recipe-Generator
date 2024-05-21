@@ -137,7 +137,7 @@ class AttnDecoderRNN(nn.Module):
         attn_weights[attn_mask] = -torch.inf # set as -inf because when softmax-ed will turn to 0
         return attn_weights
 
-    def forward(self, inp, hidden, encoder_houts, ingredients):
+    def forward(self, inp, hidden, cell, encoder_houts, ingredients):
         """
         Args:
             inp (torch.Tensor): start token or previous generation (non teacher-forcing) or 
@@ -173,11 +173,11 @@ class AttnDecoderRNN(nn.Module):
         # out: output features; shape [L=1, N, H]
         # h_final: final updated hidden state; shape [num_layers=1, N, H]
         # c_final: last cell state Tensor [num_layers=1, N, H]
-        out, (h_final, _) = self.lstm(output, (hidden, torch.zeros_like(hidden)))
+        out, (h_final, c_final) = self.lstm(output, (hidden, cell))
 
         out = self.out_fc(out) # [N, H] -> [N, |Vocab|]
 
         ## log softmax to get log probability distribution over vocabulary words
-        out = self.logsoftmax(out)
+        out = self.logsoftmax(out[0])
 
-        return out, h_final, attn_weights
+        return out, h_final, c_final, attn_weights

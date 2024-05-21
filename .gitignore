@@ -7,6 +7,8 @@ Cooking_Dataset/*
 metric_sample.txt
 log*.txt
 saved_models/*
+*.zip
+glove*
 
 # C extensions
 *.so

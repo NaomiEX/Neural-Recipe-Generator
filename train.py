@@ -20,7 +20,7 @@ def train_decoder_iter(decoder, decoder_hidden, decoder_cell, encoder_houts,
     all_decoder_outs = [] # List of [N, |Vocab|-1]
     all_gt = [] # List of [N]
     ## NOTE: recipes already contain start token no need to add manually
-    encoder_houts_i = encoder_houts # [N, L_i, H]
+    # encoder_houts_i = encoder_houts # [N, L_i, H]
     for di in range(padded_rec_len-1):
         # get batches which have valid (non-padding and non ending) tokens as input
         valid = (rec_lens - 1) > di
@@ -35,10 +35,9 @@ def train_decoder_iter(decoder, decoder_hidden, decoder_cell, encoder_houts,
                 decoder_input_i, decoder_hidden_i, decoder_cell_i)
             attn_weights = None
         elif decoder_mode == "attention":
-            raise NotImplementedError()
             encoder_houts_i = encoder_houts[valid] # [N_valid, L_i, H]
-            decoder_out, decoder_hidden_i, attn_weights_i =decoder(
-                decoder_input_i, decoder_hidden_i, encoder_houts_i, ingredients)
+            decoder_out, decoder_hidden_i, decoder_cell_i, attn_weights_i = decoder(
+                decoder_input_i, decoder_hidden_i, decoder_cell_i, encoder_houts_i, ingredients[valid])
 
         all_decoder_outs.append(decoder_out)
 
@@ -51,7 +50,7 @@ def train_decoder_iter(decoder, decoder_hidden, decoder_cell, encoder_houts,
         # update only valid decoder_hidden and decoder_cell
         decoder_hidden[:, valid] = decoder_hidden_i
         decoder_cell[:, valid] = decoder_cell_i
-        
+
     return all_decoder_outs, all_gt
 
 def train_iter(ingredients, recipes, ing_lens, rec_lens, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion,
