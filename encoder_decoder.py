@@ -44,14 +44,14 @@ class EncoderRNN(nn.Module):
         # output: PackedSequence containing hidden state for each token in sequence
         # final hidden state: Tensor [num_layers=1, N, H] NOTE: this is the last non-padded hidden state for each input sequence
         # c_final: last cell state Tensor [num_layers=1, N, H]
-        output, (h_final, _) = self.lstm(ingredients_packed)
+        output, (h_final, c_final) = self.lstm(ingredients_packed)
 
         ## unpack PackedSequence to get back our padded tensor
         # output_padded: padded output tensor which masks out encoder outputs for padding to 0; shape [N, L, H] NOTE: output_padded[:, -1] != h_final because of padding
         # output_lens: unpadded sequence lengths; tensor of shape [N]
         output_padded, output_lens = unpack(output, padding_val=self.padding_value)
 
-        return output_padded, output_lens, h_final
+        return output_padded, output_lens, h_final, c_final
     
 #! IMPORTANT: MAKE SURE DECODER'S OUTPUT SIZE IS VOCAB SIZE - 1
 class DecoderRNN(nn.Module):
@@ -74,14 +74,15 @@ class DecoderRNN(nn.Module):
         self.out_fc = nn.Linear(hidden_size, output_size)
         self.logsoftmax = nn.LogSoftmax(dim=1)
 
-    def forward(self, inp, hidden):
+    def forward(self, inp, hidden, cell):
         """Decode one word at a time. Batch processed.
 
         Args:
             inp (torch.Tensor): start token or previous generation (non teacher-forcing) or 
                                 previous ground truth token (teacher-forcing);
                                 shape [N]
-            hidden (torch.Tensor): encoder last hidden state; shape [1, N, H]
+            hidden (torch.Tensor): encoder/decoder last hidden state; shape [1, N, H]
+            cell (torch.Tensor): encoder/decoder last hidden state; shape [1, N, H]
         """
         ## embed token input
         inp_embedded = self.embedding(inp)[None] # [L=1, N, E]
@@ -93,7 +94,7 @@ class DecoderRNN(nn.Module):
         # out: output features; shape [L=1, N, H]
         # h_final: final updated hidden state; shape [num_layers=1, N, H]
         # c_final: last cell state Tensor [num_layers=1, N, H]
-        out, (h_final, _) = self.lstm(inp_embedded, (hidden, torch.zeros_like(hidden)))
+        out, (h_final, c_final) = self.lstm(inp_embedded, (hidden, cell))
 
         ## linear projection
         out = self.out_fc(out[0]) # [N, H] -> [N, |Vocab|]
@@ -101,7 +102,7 @@ class DecoderRNN(nn.Module):
         ## log softmax to get log probability distribution over vocabulary words
         out = self.logsoftmax(out) # [N, |Vocab|]
 
-        return out, h_final
+        return out, h_final, c_final
     
 class AttnDecoderRNN(nn.Module):
     def __init__(self, embedding_size, hidden_size, output_size, padding_val,

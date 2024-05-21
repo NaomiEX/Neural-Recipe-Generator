@@ -12,7 +12,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 PAD_WORD = "<PAD>"
 ##
 
-def train_decoder_iter(decoder, decoder_hidden, encoder_houts, 
+def train_decoder_iter(decoder, decoder_hidden, decoder_cell, encoder_houts, 
                        ingredients, recipes, padded_rec_len, rec_lens,
                        pad_word_idx, decoder_mode="basic"):
     assert decoder_mode in ["basic", "attention"]
@@ -26,13 +26,16 @@ def train_decoder_iter(decoder, decoder_hidden, encoder_houts,
         valid = (rec_lens - 1) > di
         decoder_input_i = recipes[valid, di] # [N_valid]
         decoder_hidden_i = decoder_hidden[:,valid] # [1, N_valid, H]
+        decoder_cell_i = decoder_cell[:, valid] # [1, N_valid, H]
 
         if decoder_mode == "basic":
             # decoder_out: log probabilities over vocab; [N_valid, |Vocab|-1]
             # decoder_hfinal: final hidden state; [num_layers=1, N_valid, H]
-            decoder_out, decoder_hidden_i = decoder(decoder_input_i, decoder_hidden_i)
+            decoder_out, decoder_hidden_i, decoder_cell_i = decoder(
+                decoder_input_i, decoder_hidden_i, decoder_cell_i)
             attn_weights = None
         elif decoder_mode == "attention":
+            raise NotImplementedError()
             encoder_houts_i = encoder_houts[valid] # [N_valid, L_i, H]
             decoder_out, decoder_hidden_i, attn_weights_i =decoder(
                 decoder_input_i, decoder_hidden_i, encoder_houts_i, ingredients)
@@ -45,8 +48,10 @@ def train_decoder_iter(decoder, decoder_hidden, encoder_houts,
         assert (gt_i != pad_word_idx).all(), f"gt_i should not have padding but got: {gt_i}"
         all_gt.append(gt_i)
 
-        # update only valid decoder_hidden
+        # update only valid decoder_hidden and decoder_cell
         decoder_hidden[:, valid] = decoder_hidden_i
+        decoder_cell[:, valid] = decoder_cell_i
+        
     return all_decoder_outs, all_gt
 
 def train_iter(ingredients, recipes, ing_lens, rec_lens, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion,
@@ -81,17 +86,19 @@ def train_iter(ingredients, recipes, ing_lens, rec_lens, encoder, decoder, encod
     # enc_out: padded encoder output tensor with shape [N, L, H]
     # enc_out_lens: unpadded sequence lengths; tensor with shape [N]
     # enc_h_final: final hidden state: [num_layers=1, N, H]
-    enc_out, enc_out_lens, enc_h_final = encoder(ingredients, ing_lens)
+    # enc_c_final: final cell state: [num_layers=1, N, H]
+    enc_out, enc_out_lens, enc_h_final, enc_c_final = encoder(ingredients, ing_lens)
 
-    # initialize decoder hidden state as final encoder hidden state
+    # initialize decoder hidden state and cell state as final encoder hidden and cell state
     decoder_hidden = enc_h_final
+    decoder_cell = enc_c_final
 
     if TEACHER_FORCING_RATIO < 1:
         raise ValueError("Non-teacher forcing is not implemented")
     
     loss = 0
 
-    all_decoder_outs, all_gt = train_decoder_iter(decoder, decoder_hidden, enc_out, 
+    all_decoder_outs, all_gt = train_decoder_iter(decoder, decoder_hidden, decoder_cell, enc_out, 
                                                   ingredients, recipes, padded_rec_len, rec_lens, 
                                                   vocab.word2index(PAD_WORD), decoder_mode=decoder_mode)
     
