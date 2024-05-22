@@ -114,46 +114,29 @@ def load_metric_sample(fpath):
     return metric_sample_ings, metric_sample_gold_recipe, metric_sample_generated_recipe
 
 
-def get_predictions_iter(ingredients, ing_lens, encoder, decoder, vocab, max_recipe_len=600):
-    """Get predictions from trained model for a single iteration. Processes batched data.
-    NOTE: ensure that this function is wrapped in `with torch.no_grad():`
-
-    Args:
-        ingredients (torch.Tensor): padded ingredients tensor in idx form; 
-                                    shape [N, L_i], where L_i = max ingredients length in batch
-        ing_lens (torch.Tensor): unpadded length of ingredients; shape [N]
-        rec_lens (torch.Tensor): unpadded length of recipes; shape [N]
-        encoder (EncoderRNN): encoder RNN module
-        decoder (DecoderRNN): decoder RNN module
-    """
-    assert encoder.training is False and decoder.training is False
-
-    N = ingredients.size(0)
-
-    ## feed ingredients through encoder
-    # enc_out: padded encoder output tensor with shape [N, L, H]
-    # enc_out_lens: unpadded sequence lengths; tensor with shape [N]
-    # enc_h_final: final hidden state: [num_layers=1, N, H]
-    # enc_c_final: final cell state: [num_layers=1, N, H]
-    enc_out, enc_out_lens, enc_h_final, enc_c_final = encoder(ingredients, ing_lens)
+def eval_decoder_iter(decoder, decoder_hidden, decoder_cell, encoder_houts,
+                      ingredients, max_recipe_len, vocab, decoder_mode="basic"):
+    assert decoder_mode in ["basic", "attention"]
     
-    # initialize decoder hidden state as final encoder hidden state
-    decoder_hidden = enc_h_final
-    decoder_cell = enc_c_final
-
-    # List[List[str]]
+    N = ingredients.size(0)
     all_decoder_outs = [[REC_START] for _ in range(N)] # stores the decoder outputs for each batch sample
 
     valid = torch.ones([N], device=DEVICE).bool() # Tensor[N] 
     decoder_input = torch.full([N], SPECIAL_TAGS[REC_START], dtype=torch.long, device=DEVICE)
-    for _ in range(max_recipe_len-1): # generations are bounded by max length
+    
+    for _ in range(max_recipe_len-1): # generations are bounded by max length (-1 because of EOS)
         decoder_hidden_i = decoder_hidden[:, valid] # [1, N_valid, H]
         decoder_cell_i = decoder_cell[:, valid]
 
-        # decoder_out: log probabilities over vocab; [N_valid, |Vocab|-1]
-        # decoder_hfinal: final hidden state; [num_layers=1, N_valid, H]
-        decoder_out, decoder_hidden_i, decoder_cell_i = decoder(decoder_input, decoder_hidden_i, decoder_cell_i)
-
+        if decoder_mode == "basic":
+            # decoder_out: log probabilities over vocab; [N_valid, |Vocab|-1]
+            # decoder_hfinal: final hidden state; [num_layers=1, N_valid, H]
+            decoder_out, decoder_hidden_i, decoder_cell_i = decoder(decoder_input, decoder_hidden_i, decoder_cell_i)
+        elif decoder_mode == "attention":
+            encoder_houts_i = encoder_houts[valid] # [N_valid, L_i, H]
+            decoder_out, decoder_hidden_i, decoder_cell_i, attn_weights_i = decoder(
+                decoder_input, decoder_hidden_i, decoder_cell_i, encoder_houts_i, ingredients[valid])
+            
         # decoder_tok_preds: token with highest log probability
         decoder_topk_preds = decoder_out.topk(1)[1].reshape(-1) # [N_valid]
 
@@ -189,7 +172,43 @@ def get_predictions_iter(ingredients, ing_lens, encoder, decoder, vocab, max_rec
 
     return all_decoder_outs
 
-def eval(encoder, decoder, dataset, vocab, batch_size=4, max_recipe_len=600):
+def get_predictions_iter(ingredients, ing_lens, encoder, decoder, vocab, max_recipe_len=600, 
+                         decoder_mode="basic"):
+    """Get predictions from trained model for a single iteration. Processes batched data.
+    NOTE: ensure that this function is wrapped in `with torch.no_grad():`
+
+    Args:
+        ingredients (torch.Tensor): padded ingredients tensor in idx form; 
+                                    shape [N, L_i], where L_i = max ingredients length in batch
+        ing_lens (torch.Tensor): unpadded length of ingredients; shape [N]
+        rec_lens (torch.Tensor): unpadded length of recipes; shape [N]
+        encoder (EncoderRNN): encoder RNN module
+        decoder (DecoderRNN): decoder RNN module
+    """
+    assert encoder.training is False and decoder.training is False
+
+    N = ingredients.size(0)
+
+    ## feed ingredients through encoder
+    # enc_out: padded encoder output tensor with shape [N, L, H]
+    # enc_out_lens: unpadded sequence lengths; tensor with shape [N]
+    # enc_h_final: final hidden state: [num_layers=1, N, H]
+    # enc_c_final: final cell state: [num_layers=1, N, H]
+    enc_out, enc_out_lens, enc_h_final, enc_c_final = encoder(ingredients, ing_lens)
+    
+    # initialize decoder hidden state as final encoder hidden state
+    decoder_hidden = enc_h_final
+    decoder_cell = enc_c_final
+
+    # List[List[str]]
+    
+    all_decoder_outs = eval_decoder_iter(decoder, decoder_hidden, decoder_cell,
+                                         enc_out, ingredients, max_recipe_len,
+                                         vocab, decoder_mode=decoder_mode)
+
+    return all_decoder_outs
+
+def eval(encoder, decoder, dataset, vocab, batch_size=4, max_recipe_len=600, decoder_mode="basic"):
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=pad_collate(vocab, train=False))
 
     all_decoder_outs = [] # (List[List[str]]): List of len `N`, each element is the generated sequence for that sample
@@ -208,7 +227,7 @@ def eval(encoder, decoder, dataset, vocab, batch_size=4, max_recipe_len=600):
             #                               list of len `gen_size`, which is the size of the generated sequence, and each element is a 
             #                                   str representing a single word in the generated recipe
             dec_outs = get_predictions_iter(ingredients, ing_lens, encoder, decoder, vocab, 
-                                            max_recipe_len=max_recipe_len)
+                                            max_recipe_len=max_recipe_len, decoder_mode=decoder_mode)
             
             all_decoder_outs += dec_outs
             all_gt_recipes += recipes
