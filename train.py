@@ -33,7 +33,6 @@ def train_decoder_iter(decoder, decoder_hidden, decoder_cell, encoder_houts,
                 decoder_input_i, decoder_hidden_i, decoder_cell_i)
             attn_weights = None
         elif decoder_mode == "attention":
-            raise NotImplementedError("not stable for validation")
             encoder_houts_i = encoder_houts[valid] # [N_valid, L_i, H]
             decoder_out, decoder_hidden_i, decoder_cell_i, attn_weights_i = decoder(
                 decoder_input_i, decoder_hidden_i, decoder_cell_i, encoder_houts_i, ingredients[valid])
@@ -207,7 +206,8 @@ def train(encoder, decoder, encoder_optimizer, decoder_optimizer, dataset, n_epo
 
             ## get validation metrics
             all_decoder_outs, all_gt_recipes = eval(encoder, decoder, dev_ds_val_met, vocab,
-                                                    max_recipe_len=MAX_RECIPE_LEN)
+                                                    batch_size=batch_size, max_recipe_len=MAX_RECIPE_LEN,
+                                                    decoder_mode=decoder_mode)
             bleu = calc_bleu(all_gt_recipes, all_decoder_outs)
             meteor = calc_meteor(all_gt_recipes, all_decoder_outs, split_gt=False)
 
