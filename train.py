@@ -3,7 +3,10 @@ import torch
 from torch import nn, optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
+
 from data import pad_collate
+from eval import calc_bleu, calc_meteor
+from utils import save_model
 
 from constants import *
 
@@ -131,13 +134,21 @@ def train_iter(ingredients, recipes, ing_lens, rec_lens, encoder, decoder, encod
 
 def train(encoder, decoder, encoder_optimizer, decoder_optimizer, dataset, n_epochs, vocab,
           decoder_mode="basic", batch_size=4, enc_lr_scheduler=None, dec_lr_scheduler=None, 
+          dev_ds=None, identifier="",
           verbose=True, verbose_iter_interval=10):
     assert (enc_lr_scheduler is None and dec_lr_scheduler is None) or (enc_lr_scheduler is not None and dec_lr_scheduler is not None)
+    
+    evaluate = dev_ds is not None
+    assert (not evaluate) or (evaluate and len(identifier) > 0)
+    
     use_scheduler =  enc_lr_scheduler is not None and dec_lr_scheduler is not None
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=pad_collate(vocab))
     total_iters = len(dataloader)
     epoch_losses = torch.zeros(size=[n_epochs], dtype=torch.double, device=DEVICE, requires_grad=False)
     criterion = nn.NLLLoss()
+
+    
+    highest_bleu = 0
 
     for epoch in range(n_epochs):
         if verbose: print(f"Starting epoch {epoch+1}/{n_epochs}, "
@@ -172,5 +183,22 @@ def train(encoder, decoder, encoder_optimizer, decoder_optimizer, dataset, n_epo
         if use_scheduler:
             enc_lr_scheduler.step()
             dec_lr_scheduler.step()
+
+        if evaluate:
+            all_decoder_outs, all_gt_recipes = eval(encoder, decoder, dev_ds, vocab,
+                                                    max_recipe_len=MAX_RECIPE_LEN)
+            bleu = calc_bleu(all_gt_recipes, all_decoder_outs)
+            meteor = calc_meteor(all_gt_recipes, all_decoder_outs, split_gt=False)
+            if verbose:
+                print(f"BLEU score: {bleu}, METEOR score: {meteor}")
+            
+            if bleu > highest_bleu:
+                highest_bleu = bleu
+                save_model(encoder, decoder, f"{identifier}_ep_{epoch}")
+            
+            # set back to train mode because in eval they are set to eval mode
+            encoder.train()
+            decoder.train()
+
 
     return epoch_losses
