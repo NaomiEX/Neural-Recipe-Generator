@@ -31,3 +31,16 @@ def load_model(encoder, decoder, identifier):
 
     encoder.load_state_dict(torch.load(encpath))
     decoder.load_state_dict(torch.load(decpath))
+
+def save_log(identifier, train_out, enc_optim, dec_optim, enc_sched, dec_sched):
+    if not os.path.isdir("./logs"):
+        os.makedirs("logs") 
+    savepath = os.path.join("logs",f"log_{identifier}.txt") 
+    with open(savepath, "w") as f:
+        f.write(str(enc_optim) + "\n")
+        f.write(str(dec_optim) + "\n")
+        f.write(str(enc_sched) + "\n")
+        f.write(str(dec_sched) + "\n")
+        f.write("========================\n")
+        f.write(train_out)
+

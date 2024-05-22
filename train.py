@@ -145,6 +145,7 @@ def train(encoder, decoder, encoder_optimizer, decoder_optimizer, dataset, n_epo
     total_iters = len(dataloader)
     epoch_losses = torch.zeros(size=[n_epochs], dtype=torch.double, device=DEVICE, requires_grad=False)
     criterion = nn.NLLLoss()
+    log = ""
 
     
     highest_bleu = 0
@@ -159,7 +160,9 @@ def train(encoder, decoder, encoder_optimizer, decoder_optimizer, dataset, n_epo
         start_epoch_time = time.time()
         for iter_idx, (ingredients, recipes, ing_lens, rec_lens) in enumerate(dataloader):
             if verbose and iter_idx > 0  and iter_idx % verbose_iter_interval == 0:
-                print(f"(Epoch {epoch}, iter {iter_idx}/{total_iters}) Average loss so far: {print_epoch_loss/verbose_iter_interval:.3f}")
+                msg = f"(Epoch {epoch}, iter {iter_idx}/{total_iters}) Average loss so far: {print_epoch_loss/verbose_iter_interval:.3f}"
+                log += msg + "\n"
+                print(msg)
                 print_epoch_loss = 0
             loss = train_iter(ingredients, recipes, ing_lens, rec_lens, encoder, decoder, 
                                    encoder_optimizer, decoder_optimizer, criterion, 
@@ -176,8 +179,10 @@ def train(encoder, decoder, encoder_optimizer, decoder_optimizer, dataset, n_epo
             remaining_time = one_epoch_time_sec * remaining_epochs
             remaining_time_hours = remaining_time //3600
             remaining_time_mins = remaining_time % 3600 // 60
-            print(f"Average epoch loss: {epoch_loss:.3f}")
-            print(f"This epoch took {one_epoch_time_sec / 60} mins. Time remaining: {remaining_time_hours} hrs {remaining_time_mins} mins.")
+            msg = f"Average epoch loss: {epoch_loss:.3f}\n"\
+                  f"This epoch took {one_epoch_time_sec / 60} mins. Time remaining: {remaining_time_hours} hrs {remaining_time_mins} mins."
+            log += msg + "\n"
+            print(msg)
         epoch_losses[epoch]=epoch_loss
         if use_scheduler:
             enc_lr_scheduler.step()
@@ -189,8 +194,9 @@ def train(encoder, decoder, encoder_optimizer, decoder_optimizer, dataset, n_epo
             bleu = calc_bleu(all_gt_recipes, all_decoder_outs)
             meteor = calc_meteor(all_gt_recipes, all_decoder_outs, split_gt=False)
             if verbose:
-                print(f"BLEU score: {bleu}, METEOR score: {meteor}")
-            
+                msg = f"BLEU score: {bleu}, METEOR score: {meteor}"
+                log += msg + "\n"
+                print(msg)
             if bleu > highest_bleu:
                 highest_bleu = bleu
                 if bleu > min_bleu_to_save:
@@ -201,4 +207,4 @@ def train(encoder, decoder, encoder_optimizer, decoder_optimizer, dataset, n_epo
             decoder.train()
 
 
-    return epoch_losses
+    return epoch_losses, log
