@@ -248,7 +248,7 @@ class AttnDecoderRNN(nn.Module):
         # c_final: last cell state Tensor [num_layers=1, N, H]
         out, (h_final, c_final) = self.lstm(output, (hidden, cell))
 
-        out = self.out_fc(out) # [N, H] -> [N, |Vocab|]
+        out = self.out_fc(out) # [L=1, N, H] -> [L=1, N, |Vocab|]
 
         ## log softmax to get log probability distribution over vocabulary words
         out = self.logsoftmax(out[0])
