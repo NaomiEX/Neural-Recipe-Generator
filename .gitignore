@@ -9,7 +9,7 @@ log*.txt
 saved_models/*
 *.zip
 glove*
-playground.ipynb
+*playground*
 
 # C extensions
 *.so

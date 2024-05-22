@@ -13,6 +13,10 @@ from constants import *
 def get_ingredients_regex(ingredients_lst):
     return r'\b(?:' + '|'.join(re.escape(i) for i in ingredients_lst) + r')\b'
 
+def get_invalid_ingredients_regex(ingredients_lst):
+    # return r'(^|\.\s|,\s)(\b(?:' + '|'.join(re.escape(ingredient) for ingredient in ingredients_lst) + r')\b)'
+    return r'(^|\.\s)(\b(?:' + '|'.join(re.escape(ingredient) for ingredient in ingredients_lst) + r')\b)'
+
 def get_all_ingredients(fpath, reverse_sort=True):
     # get list of valid ingredients in the dataset from RecipeWithPlans
     with open(fpath, "r") as f:
