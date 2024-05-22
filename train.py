@@ -1,11 +1,10 @@
 import time
 import torch
 from torch import nn, optim
-from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
 from data import pad_collate
-from eval import calc_bleu, calc_meteor
+from eval import calc_bleu, calc_meteor, eval
 from utils import save_model
 
 from constants import *
