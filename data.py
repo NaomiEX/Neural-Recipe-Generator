@@ -124,8 +124,8 @@ class Vocabulary:
             df_row = df.iloc[rowid]
             for i in range(2):
                 self.add_sentence(df_row.iloc[i])
-        self.add_padding() # padding should be last in the vocabulary (for convenience in decoder)
         self.add_unknown() # unknown word is for words in the dev/test not present in train
+        self.add_padding() # padding should be last in the vocabulary (for convenience in decoder)
 
 class RecipeDataset(Dataset):
     def __init__(self, df, vocab, train=True):

@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 from data import pack, unpack
 
-from constants import MAX_INGR_LEN
+from constants import MAX_INGR_LEN, DEVICE
 
 def create_pretrained_embedding_dict(emb_filepath, **kwargs):
     ## build embedding dictionary
@@ -144,6 +144,12 @@ class DecoderRNN(nn.Module):
             cell (torch.Tensor): encoder/decoder last hidden state; shape [1, N, H]
         """
         ## embed token input
+        # if val and ((inp > self.embedding.num_embeddings).sum() > 0):
+        #     inp_embedded = torch.zeros([inp.shape[0], self.embedding.embedding_dim], device=DEVICE)
+        #     mask = inp < self.embedding.num_embeddings
+        #     inp_embedded[mask] = self.embedding(inp[mask])
+        #     inp_embedded = inp_embedded[None]
+        # else:
         inp_embedded = self.embedding(inp)[None] # [L=1, N, E]
 
         ## apply non-linear activation

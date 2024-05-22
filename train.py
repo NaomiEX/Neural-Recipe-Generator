@@ -2,6 +2,7 @@ import time
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from data import pad_collate
 from eval import calc_bleu, calc_meteor, eval
@@ -32,6 +33,7 @@ def train_decoder_iter(decoder, decoder_hidden, decoder_cell, encoder_houts,
                 decoder_input_i, decoder_hidden_i, decoder_cell_i)
             attn_weights = None
         elif decoder_mode == "attention":
+            raise NotImplementedError("not stable for validation")
             encoder_houts_i = encoder_houts[valid] # [N_valid, L_i, H]
             decoder_out, decoder_hidden_i, decoder_cell_i, attn_weights_i = decoder(
                 decoder_input_i, decoder_hidden_i, decoder_cell_i, encoder_houts_i, ingredients[valid])
@@ -133,20 +135,23 @@ def train_iter(ingredients, recipes, ing_lens, rec_lens, encoder, decoder, encod
 
 def train(encoder, decoder, encoder_optimizer, decoder_optimizer, dataset, n_epochs, vocab,
           decoder_mode="basic", batch_size=4, enc_lr_scheduler=None, dec_lr_scheduler=None, 
-          dev_ds=None, identifier="", min_bleu_to_save=0.01,
+          dev_ds_val_loss=None, dev_ds_val_met=None, identifier="", min_bleu_to_save=0.01,
           verbose=True, verbose_iter_interval=10):
     assert (enc_lr_scheduler is None and dec_lr_scheduler is None) or (enc_lr_scheduler is not None and dec_lr_scheduler is not None)
     
-    evaluate = dev_ds is not None
+    evaluate = dev_ds_val_loss is not None and dev_ds_val_met is not None
     assert (not evaluate) or (evaluate and len(identifier) > 0)
     
     use_scheduler =  enc_lr_scheduler is not None and dec_lr_scheduler is not None
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=pad_collate(vocab))
     total_iters = len(dataloader)
+    
+    
     epoch_losses = torch.zeros(size=[n_epochs], dtype=torch.double, device=DEVICE, requires_grad=False)
+    val_epoch_losses = torch.zeros(size=[n_epochs], dtype=torch.double, device=DEVICE, requires_grad=False)
+    
     criterion = nn.NLLLoss()
     log = ""
-
     
     highest_bleu = 0
 
@@ -183,16 +188,29 @@ def train(encoder, decoder, encoder_optimizer, decoder_optimizer, dataset, n_epo
                   f"This epoch took {one_epoch_time_sec / 60} mins. Time remaining: {remaining_time_hours} hrs {remaining_time_mins} mins."
             log += msg + "\n"
             print(msg)
+
         epoch_losses[epoch]=epoch_loss
         if use_scheduler:
             enc_lr_scheduler.step()
             dec_lr_scheduler.step()
 
         if evaluate:
-            all_decoder_outs, all_gt_recipes = eval(encoder, decoder, dev_ds, vocab,
+            ## get validation loss
+            val_loss = get_validation_loss(encoder, decoder, dev_ds_val_loss, vocab, batch_size=batch_size,
+                                           decoder_mode=decoder_mode)
+            val_epoch_losses[epoch] = val_loss
+            
+            if verbose:
+                msg = f"validation loss: {val_loss}"
+                log += msg + "\n"
+                print(msg)
+
+            ## get validation metrics
+            all_decoder_outs, all_gt_recipes = eval(encoder, decoder, dev_ds_val_met, vocab,
                                                     max_recipe_len=MAX_RECIPE_LEN)
             bleu = calc_bleu(all_gt_recipes, all_decoder_outs)
             meteor = calc_meteor(all_gt_recipes, all_decoder_outs, split_gt=False)
+
             if verbose:
                 msg = f"BLEU score: {bleu}, METEOR score: {meteor}"
                 log += msg + "\n"
@@ -207,4 +225,57 @@ def train(encoder, decoder, encoder_optimizer, decoder_optimizer, dataset, n_epo
             decoder.train()
 
 
-    return epoch_losses, log
+    return epoch_losses, val_epoch_losses, log
+
+
+def get_validation_loss_iter(encoder, decoder, ingredients, recipes, ing_lens, rec_lens, vocab, criterion,
+                             decoder_mode="basic"):
+    assert not encoder.training and not decoder.training
+    padded_rec_len = recipes.size(1) # L_r
+
+    ## feed ingredients through encoder
+    # enc_out: padded encoder output tensor with shape [N, L, H]
+    # enc_out_lens: unpadded sequence lengths; tensor with shape [N]
+    # enc_h_final: final hidden state: [num_layers=1, N, H]
+    # enc_c_final: final cell state: [num_layers=1, N, H]
+    enc_out, enc_out_lens, enc_h_final, enc_c_final = encoder(ingredients, ing_lens)
+
+    # initialize decoder hidden state and cell state as final encoder hidden and cell state
+    decoder_hidden = enc_h_final
+    decoder_cell = enc_c_final
+
+    if TEACHER_FORCING_RATIO < 1:
+        raise ValueError("Non-teacher forcing is not implemented")
+    
+    loss = 0
+
+    all_decoder_outs, all_gt = train_decoder_iter(decoder, decoder_hidden, decoder_cell, enc_out, 
+                                                  ingredients, recipes, padded_rec_len, rec_lens, 
+                                                  vocab.word2index(PAD_WORD), decoder_mode=decoder_mode)
+    
+    all_decoder_outs = torch.cat(all_decoder_outs, dim=0)
+    all_gt = torch.cat(all_gt, dim=0)
+
+    # mean Negative Log Likelihood Loss
+    loss = criterion(all_decoder_outs, all_gt)
+
+    return loss.item()
+
+
+def get_validation_loss(encoder, decoder, dataset, vocab, batch_size=4, decoder_mode="basic"):
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=pad_collate(vocab))
+
+    encoder.eval()
+    decoder.eval()
+
+    criterion = nn.NLLLoss()
+
+    total_loss = 0
+
+    with torch.no_grad():
+        for idx, (ingredients, recipes, ing_lens, rec_lens) in tqdm(enumerate(dataloader)):
+            loss = get_validation_loss_iter(encoder, decoder, ingredients, recipes, ing_lens, rec_lens,
+                                            vocab, criterion, decoder_mode=decoder_mode)
+            total_loss += loss
+
+    return total_loss/len(dataloader)
