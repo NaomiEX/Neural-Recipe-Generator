@@ -134,7 +134,7 @@ def train_iter(ingredients, recipes, ing_lens, rec_lens, encoder, decoder, encod
 
 def train(encoder, decoder, encoder_optimizer, decoder_optimizer, dataset, n_epochs, vocab,
           decoder_mode="basic", batch_size=4, enc_lr_scheduler=None, dec_lr_scheduler=None, 
-          dev_ds=None, identifier="",
+          dev_ds=None, identifier="", min_bleu_to_save=0.01,
           verbose=True, verbose_iter_interval=10):
     assert (enc_lr_scheduler is None and dec_lr_scheduler is None) or (enc_lr_scheduler is not None and dec_lr_scheduler is not None)
     
@@ -194,7 +194,8 @@ def train(encoder, decoder, encoder_optimizer, decoder_optimizer, dataset, n_epo
             
             if bleu > highest_bleu:
                 highest_bleu = bleu
-                save_model(encoder, decoder, f"{identifier}_ep_{epoch}")
+                if bleu > min_bleu_to_save:
+                    save_model(encoder, decoder, f"{identifier}_ep_{epoch}")
             
             # set back to train mode because in eval they are set to eval mode
             encoder.train()
