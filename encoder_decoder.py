@@ -33,7 +33,7 @@ def create_pretrained_embeddings(pretrained_embedding_dict, input_size, embeddin
             emb[i] = pretrained_embedding_dict[word]
     
     if verbose: 
-        print(f"{len(vocab_idxs_in_pretrained)}/{len(vocab)} ({len(vocab_idxs_in_pretrained)/len(vocab):.3f}) words have pretrained embeddings")
+        print(f"{len(vocab_idxs_in_pretrained)}/{input_size} ({len(vocab_idxs_in_pretrained)/input_size:.3f}%) words have pretrained embeddings")
 
     return emb, vocab_idxs_in_pretrained
 
