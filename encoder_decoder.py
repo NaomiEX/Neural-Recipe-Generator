@@ -57,6 +57,7 @@ class EncoderRNN(nn.Module):
                  padding_value,
                  pretrained_embedding_dict=None,
                  vocab=None,
+                 num_lstm_layers=1
                  ):
         """Encoder LSTM to encode input sequence.
 
@@ -67,7 +68,7 @@ class EncoderRNN(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.embedding, self.pretrained_emb_idxs = create_embeddings(input_size, embedding_size, pretrained_embedding_dict, vocab)
-        self.lstm = nn.LSTM(embedding_size, hidden_size, batch_first=True)
+        self.lstm = nn.LSTM(embedding_size, hidden_size, batch_first=True, num_layers=num_lstm_layers)
         self.padding_value = padding_value
 
     def update_embedding_grad(self, grads):
@@ -173,19 +174,19 @@ class AttnDecoderRNN(nn.Module):
     def __init__(self, embedding_size, hidden_size, output_size, padding_val,
                  dropout=0.1, global_max_ing_len=MAX_INGR_LEN,
                  pretrained_embedding_dict=None,
-                 vocab=None,
+                 vocab=None, num_lstm_layers=1,
                  ):
         super().__init__()
         self.hidden_size = hidden_size
         self.padding_val = padding_val
         self.global_max_ing_len = global_max_ing_len
 
-        self.embedding, self.pretrained_emb_idxs = create_embeddings(output_size, embedding_size, 
-                                                                     pretrained_embedding_dict, vocab)
+        self.embedding, self.pretrained_emb_idxs = create_embeddings(
+            output_size, embedding_size, pretrained_embedding_dict, vocab)
         self.attn = nn.Linear(hidden_size + embedding_size, global_max_ing_len)
         self.attn_combine = nn.Linear(hidden_size + embedding_size, hidden_size)
         self.dropout = nn.Dropout(dropout)
-        self.lstm = nn.LSTM(hidden_size, hidden_size, batch_first=False)
+        self.lstm = nn.LSTM(hidden_size, hidden_size, batch_first=False, num_layers=num_lstm_layers)
         self.nonlinear_activation = nn.ReLU() # TODO: TRY TANH
         self.out_fc = nn.Linear(hidden_size, output_size)
         self.logsoftmax = nn.LogSoftmax(dim=1)
@@ -229,7 +230,7 @@ class AttnDecoderRNN(nn.Module):
         inp_embedded = self.dropout(inp_embedded)
 
         attn_weights = self.attn(
-            torch.cat((inp_embedded, hidden[0]), dim=1) # [N, E+H]
+            torch.cat((inp_embedded, hidden[-1]), dim=1) # [N, E+H]
         )[:, :L_i] # [N, max_ing_len] -> [N, L_i]
         # [N, L_i]
         attn_weights = F.softmax(
