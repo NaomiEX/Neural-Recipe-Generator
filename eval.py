@@ -57,7 +57,7 @@ def calc_meteor(gt_recipes, gen_recipes, split_gt=False, split_gen=False):
         meteor_score += meteor([gt_recipes_i], generated_recipe)
     return meteor_score / len(gen_recipes)
 
-def get_prop_input_num_extra_ingredients(ingr_txt, recipe_txt, all_ings_regex, verbose=False, metric_sample=False):
+def get_prop_input_num_extra_ingredients_m(ingr_txt, recipe_txt, all_ings_regex, verbose=False):
     """get proportion of input ingredients and number of extra ingredients in recipe (`txt`).
 
     Args:
@@ -71,23 +71,14 @@ def get_prop_input_num_extra_ingredients(ingr_txt, recipe_txt, all_ings_regex, v
     # # get regex to match only input ingredients
     # input_ingredients_regex = get_ingredients_regex(input_ingredients)
 
-    if metric_sample:
-        all_ings_in_text = [i.strip('<>') for i in set(re.findall("<[A-Za-z ]+>", recipe_txt))]
-        input_ings_in_text = []
-        extra_ings_in_text = []
-        for ing in all_ings_in_text:
-            if ing in input_ingredients:
-                input_ings_in_text.append(ing)
-            else:
-                extra_ings_in_text.append(ing)
-    else:
-        # gets all ingredients in recipe
-        all_ings_in_text = find_ingredients_in_text(recipe_txt, all_ings_regex)
-        # gets only input ingredients in recipe
-        # input_ings_in_text = find_ingredients_in_text(recipe_txt, input_ingredients_regex)
-        input_ings_in_text = [i for i in all_ings_in_text if i in input_ingredients]
-        extra_ings_in_text = [i for i in all_ings_in_text if i not in input_ings_in_text]
-
+    all_ings_in_text = [i.strip('<>') for i in set(re.findall("<[A-Za-z ]+>", recipe_txt))]
+    input_ings_in_text = []
+    extra_ings_in_text = []
+    for ing in all_ings_in_text:
+        if ing in input_ingredients:
+            input_ings_in_text.append(ing)
+        else:
+            extra_ings_in_text.append(ing)
     if verbose:
         print(f"=====Input ingredients in text=====\n{input_ings_in_text}")
         print(f"\n=====All ingredients in text===== \n{all_ings_in_text}")
@@ -95,6 +86,63 @@ def get_prop_input_num_extra_ingredients(ingr_txt, recipe_txt, all_ings_regex, v
     prop_input_ings = len(input_ings_in_text) / len(input_ingredients)
     num_extra_ings = len(extra_ings_in_text)
     return prop_input_ings, num_extra_ings
+
+def get_included_extra_ingrs_single(ingredients_i: str, recipe_i: str, 
+                                    all_ingredients_regex:str, invalid_ingredients_regex:str,
+                                     partial_match=False):
+    ## get all ingredients in input ingredients
+    input_ingrs = find_ingredients_in_text(ingredients_i, all_ingredients_regex, enforce_unique=True)
+
+    # some data samples have ingredients which are not recognized by the regex
+    if len(input_ingrs) < 1:
+        return None, None
+    
+    ## get all ingredients in recipe
+    all_recipe_ingrs = find_ingredients_in_text(recipe_i, all_ingredients_regex, enforce_unique=False)
+    # get all invalid ingredients in recipe (start of sentence, etc.)
+    invalid_recipe_ingrs = find_ingredients_in_text(recipe_i, invalid_ingredients_regex, enforce_unique=False)
+
+    # remove a single instance of the invalid ingredient
+    for i in range(len(invalid_recipe_ingrs)):
+        if type(invalid_recipe_ingrs[i]) == tuple:
+            invalid_w = invalid_recipe_ingrs[i][-1]
+        else:
+            invalid_w = invalid_recipe_ingrs[i]
+        all_recipe_ingrs.remove(invalid_w)
+
+    valid_recipe_ingrs = set(all_recipe_ingrs) # remove duplicates
+
+    included_ingrs = 0
+    for recipe_ingr in valid_recipe_ingrs:
+        ## whole match
+        if recipe_ingr in input_ingrs:
+            included_ingrs += 1
+            continue
+        ## partial match
+        if partial_match:
+            indiv_ingr_parts = " ".join(input_ingrs).split()
+            if recipe_ingr in indiv_ingr_parts:
+                included_ingrs += 1
+                continue
+    num_extra_ingrs = len(valid_recipe_ingrs) - included_ingrs
+
+    prop_included_ingrs = min(1, included_ingrs/len(input_ingrs))
+
+    return prop_included_ingrs, num_extra_ingrs
+
+def get_prop_input_num_extra_ingredients(all_ingredients:list[str], all_recipes: list[str], 
+                                         all_ingredients_regex, invalid_ingredients_regex, partial_match=True):
+    prop_included_ingrs_all = []
+    num_extra_ingrs_all = []
+    for ingredients_i, recipe_i in tqdm(zip(all_ingredients, all_recipes)):
+        prop_included_ingrs, num_extra_ingrs = get_included_extra_ingrs_single(
+            ingredients_i, recipe_i, all_ingredients_regex, invalid_ingredients_regex, partial_match)
+        if prop_included_ingrs is not None:
+            prop_included_ingrs_all.append(prop_included_ingrs)
+            num_extra_ingrs_all.append(num_extra_ingrs)
+    avg_prop_included_ingrs = sum(prop_included_ingrs_all) / len(prop_included_ingrs_all)
+    avg_num_extra_ingrs = sum(num_extra_ingrs_all) / len(num_extra_ingrs_all)
+    return avg_prop_included_ingrs, avg_num_extra_ingrs
 
 ## Gold comparison
 def load_metric_sample(fpath):
@@ -217,6 +265,7 @@ def eval(encoder, decoder, dataset, vocab, batch_size=4, max_recipe_len=600, dec
 
     all_decoder_outs = [] # (List[List[str]]): List of len `N`, each element is the generated sequence for that sample
     all_gt_recipes = [] # (List[List[str]])
+    all_gt_ingredients = []
 
     encoder.eval()
     decoder.eval()
@@ -235,7 +284,6 @@ def eval(encoder, decoder, dataset, vocab, batch_size=4, max_recipe_len=600, dec
             
             all_decoder_outs += dec_outs
             all_gt_recipes += recipes
+            all_gt_ingredients += ingredients.tolist()
 
-    # TODO: INTEGRATE CALCULATION OF METRICS IN HERE ONCE STABLE
-    
-    return all_decoder_outs, all_gt_recipes
+    return all_decoder_outs, all_gt_recipes, all_gt_ingredients
