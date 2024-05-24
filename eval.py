@@ -4,6 +4,7 @@ import json
 from torch.utils.data import DataLoader
 from nltk.translate.bleu_score import corpus_bleu
 from nltk.translate import meteor
+from nltk import word_tokenize
 from tqdm import tqdm
 
 from data import pad_collate
@@ -39,20 +40,20 @@ def calc_bleu(gt_recipes, gen_recipes, split_gt=False, split_gen=False):
         gt_recipes (List): len N
         gen_recipes (List[List] or List): 
     """
-    gt_recipes_lst2 = [[gt.split()] if split_gt else [gt] for gt in gt_recipes]
+    gt_recipes_lst2 = [[word_tokenize(gt)] if split_gt else [gt] for gt in gt_recipes]
     if split_gen:
-        gen_recipes = [r.split() for r in gen_recipes]
+        gen_recipes = [word_tokenize(r) for r in gen_recipes]
     return corpus_bleu(gt_recipes_lst2, gen_recipes)
 
 def calc_meteor(gt_recipes, gen_recipes, split_gt=False, split_gen=False):
     if split_gt:
-        gt_recipes_lst2 = [gt.split() for gt in gt_recipes]
+        gt_recipes_lst2 = [word_tokenize(gt) for gt in gt_recipes]
     else:
         gt_recipes_lst2 = gt_recipes
 
     meteor_score = 0
     for i in tqdm(range(len(gen_recipes))):
-        generated_recipe = gen_recipes[i].split() if split_gen else gen_recipes[i]
+        generated_recipe = word_tokenize(gen_recipes[i]) if split_gen else gen_recipes[i]
         gt_recipes_i = gt_recipes_lst2[i]
         meteor_score += meteor([gt_recipes_i], generated_recipe)
     return meteor_score / len(gen_recipes)
