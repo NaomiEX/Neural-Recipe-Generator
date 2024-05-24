@@ -365,7 +365,7 @@ def eval_neuro_decoding(encoder, decoder, dataset, vocab, all_ingredients_list,
             )
             all_decoder_outs += [final_decoder_out_txt]
             all_gt_recipes += recipes
-            all_ingredients += [[ingredients_text]]
+            all_ingredients += [ingredients_text]
 
     return all_decoder_outs, all_gt_recipes, all_ingredients
 

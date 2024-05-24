@@ -130,7 +130,7 @@ def get_included_extra_ingrs_single(ingredients_i: str, recipe_i: str,
 
     return prop_included_ingrs, num_extra_ingrs
 
-def get_prop_input_num_extra_ingredients(all_ingredients:list[str], all_recipes: list[str], 
+def get_prop_input_num_extra_ingredients(all_ingredients, all_recipes, 
                                          all_ingredients_regex, invalid_ingredients_regex, partial_match=True):
     prop_included_ingrs_all = []
     num_extra_ingrs_all = []
@@ -143,6 +143,24 @@ def get_prop_input_num_extra_ingredients(all_ingredients:list[str], all_recipes:
     avg_prop_included_ingrs = sum(prop_included_ingrs_all) / len(prop_included_ingrs_all)
     avg_num_extra_ingrs = sum(num_extra_ingrs_all) / len(num_extra_ingrs_all)
     return avg_prop_included_ingrs, avg_num_extra_ingrs
+
+def convert_eval_out_to_get_ingredient_metrics(all_generated_recipes, all_gt_ingredients, vocab,
+                                               all_ingredients_lst, skip_ing_processing=False):
+    if skip_ing_processing:
+        ingredient_txts = all_gt_ingredients
+    else:
+        ingredient_txts = []
+        for ingredients in all_gt_ingredients:
+            ing_text = " ".join([vocab.index2word[i] for i in ingredients
+                            if i != vocab.word2index(PAD_WORD)])
+            ingredient_txts += [ing_text]
+    generated_recipes_concat = [" ".join(l) for l in all_generated_recipes]
+    all_ingredient_regex = get_ingredients_regex(all_ingredients_lst)
+    invalid_ingredient_regex = get_invalid_ingredients_regex(all_ingredients_lst)
+    avg_prop_included_ingrs, avg_num_extra_ingrs = get_prop_input_num_extra_ingredients(
+        ingredient_txts, generated_recipes_concat, all_ingredient_regex, invalid_ingredient_regex)
+    print(f"Avg. % given ingredients: {avg_prop_included_ingrs*100:.3f}%\n"
+          f"Avg. number of extra ingredients: {avg_num_extra_ingrs:.3f}")
 
 ## Gold comparison
 def load_metric_sample(fpath):
