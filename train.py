@@ -205,7 +205,7 @@ def train(encoder, decoder, encoder_optimizer, decoder_optimizer, dataset, n_epo
                 print(msg)
 
             ## get validation metrics
-            all_decoder_outs, all_gt_recipes = eval(encoder, decoder, dev_ds_val_met, vocab,
+            all_decoder_outs, all_gt_recipes, _ = eval(encoder, decoder, dev_ds_val_met, vocab,
                                                     batch_size=batch_size, max_recipe_len=MAX_RECIPE_LEN,
                                                     decoder_mode=decoder_mode)
             bleu = calc_bleu(all_gt_recipes, all_decoder_outs)
