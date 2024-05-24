@@ -327,6 +327,7 @@ def eval_neuro_decoding(encoder, decoder, dataset, vocab, all_ingredients_list,
     
     all_decoder_outs = [] # (List[List[str]]): List of len `N`, each element is the generated sequence for that sample
     all_gt_recipes = [] # (List[List[str]])
+    all_ingredients = []
 
     ## Build constraints dictionary (all possible constraints)
     constraints_dict = {}
@@ -356,16 +357,17 @@ def eval_neuro_decoding(encoder, decoder, dataset, vocab, all_ingredients_list,
 
     with torch.no_grad():
         for ingredients, recipes, ing_lens, _ in tqdm(dataloader):
-            pos_constraints, neg_constraints = create_pos_neg_constraints(
+            pos_constraints, neg_constraints, ingredients_text = create_pos_neg_constraints(
                 ingredients, vocab, all_ingredients_regex, constraints_dict)
             final_decoder_out_txt = eval_neuro_decoding_iter(
                 ingredients, ing_lens, encoder, decoder, vocab, pos_constraints, neg_constraints,
                 max_recipe_len, **kwargs
             )
-            all_decoder_outs += final_decoder_out_txt
+            all_decoder_outs += [final_decoder_out_txt]
             all_gt_recipes += recipes
+            all_ingredients += [[ingredients_text]]
 
-    return all_decoder_outs, all_gt_recipes
+    return all_decoder_outs, all_gt_recipes, all_ingredients
 
 def create_pos_neg_constraints(ingredients_idxs, # expecting batch size 1
                                vocab,
@@ -387,4 +389,4 @@ def create_pos_neg_constraints(ingredients_idxs, # expecting batch size 1
                 break
         if valid_negative_constraint:
             neg_constraints.append(constraints_dict[constraint])
-    return pos_constraints, neg_constraints
+    return pos_constraints, neg_constraints, ingredients_text
