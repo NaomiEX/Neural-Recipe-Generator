@@ -23,8 +23,8 @@ def train_decoder_iter(decoder, decoder_hidden, decoder_cell, encoder_houts,
         # get batches which have valid (non-padding and non ending) tokens as input
         valid = (rec_lens - 1) > di
         decoder_input_i = recipes[valid, di] # [N_valid]
-        decoder_hidden_i = decoder_hidden[:,valid] # [1, N_valid, H]
-        decoder_cell_i = decoder_cell[:, valid] # [1, N_valid, H]
+        decoder_hidden_i = decoder_hidden[:,valid] # [n_layers=1, N_valid, H]
+        decoder_cell_i = decoder_cell[:, valid] # [n_layers=1, N_valid, H]
 
         if decoder_mode == "basic":
             # decoder_out: log probabilities over vocab; [N_valid, |Vocab|-1]

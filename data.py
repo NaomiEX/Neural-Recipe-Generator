@@ -103,6 +103,9 @@ class Vocabulary:
         else:
             self.word2count[word] += 1
 
+    def word_exist_in_vocab(self, word):
+        return word in self._word2index
+
     def word2index(self, word):
         if word not in self._word2index:
             return self._word2index[UNKNOWN_WORD]
