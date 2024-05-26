@@ -319,17 +319,7 @@ def eval_neuro_decoding_iter(ingredients, ing_lens, encoder, decoder, vocab, pos
 
     return final_decoder_out_txt
 
-def eval_neuro_decoding(encoder, decoder, dataset, vocab, all_ingredients_list, 
-                        max_recipe_len=MAX_RECIPE_LEN, **kwargs):
-    
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False, 
-                                              collate_fn=pad_collate(vocab, train=False))
-    
-    all_decoder_outs = [] # (List[List[str]]): List of len `N`, each element is the generated sequence for that sample
-    all_gt_recipes = [] # (List[List[str]])
-    all_ingredients = []
-
-    ## Build constraints dictionary (all possible constraints)
+def build_constraints_dict(all_ingredients_list, vocab):
     constraints_dict = {}
     valid_ingredients_list = deepcopy(all_ingredients_list)
     invalid_ingredients = []
@@ -347,8 +337,39 @@ def eval_neuro_decoding(encoder, decoder, dataset, vocab, all_ingredients_list,
         else:
             # valid_ingredients_list.remove(ingredient)
             invalid_ingredients.append(ingredient)
+    return constraints_dict, invalid_ingredients
 
-    valid_ingredients_list = [i for i in valid_ingredients_list if i not in invalid_ingredients]
+def eval_neuro_decoding(encoder, decoder, dataset, vocab, all_ingredients_list, 
+                        max_recipe_len=MAX_RECIPE_LEN, **kwargs):
+    
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=False, 
+                                              collate_fn=pad_collate(vocab, train=False))
+    
+    all_decoder_outs = [] # (List[List[str]]): List of len `N`, each element is the generated sequence for that sample
+    all_gt_recipes = [] # (List[List[str]])
+    all_ingredients = []
+
+    ## Build constraints dictionary (all possible constraints)
+    # constraints_dict = {}
+    # valid_ingredients_list = deepcopy(all_ingredients_list)
+    # invalid_ingredients = []
+    # for ingredient in valid_ingredients_list:
+    #     invalid_ingredient=False
+    #     ingredient_idx_form = []
+
+    #     for word in ingredient.split():
+    #         if not vocab.word_exist_in_vocab(word):
+    #             invalid_ingredient = True
+    #             break
+    #         ingredient_idx_form.append(vocab.word2index(word))
+    #     if not invalid_ingredient:
+    #         constraints_dict[ingredient] = ingredient_idx_form
+    #     else:
+    #         # valid_ingredients_list.remove(ingredient)
+    #         invalid_ingredients.append(ingredient)
+    constraints_dict, invalid_ingredients = build_constraints_dict(all_ingredients_list, vocab)
+
+    valid_ingredients_list = [i for i in all_ingredients_list if i not in invalid_ingredients]
 
     all_ingredients_regex = get_ingredients_regex(valid_ingredients_list)
 
