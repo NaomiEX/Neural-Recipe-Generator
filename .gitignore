@@ -11,6 +11,8 @@ saved_models/*
 glove*
 *playground*
 
+generated_recipe*.csv
+
 # C extensions
 *.so
 
