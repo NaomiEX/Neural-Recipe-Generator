@@ -1,5 +1,14 @@
 # Neural Recipe Generator
 
+- [Introduction](#introduction)
+- [Analysis](#analysis)
+- [Quantitative Results](#quantitative-evaluation)
+- [Qualitative Results](#qualitative-evaluation)
+- [References](#references)
+
+
+## Introduction
+
 Using Language Models (LMs) to generate recipes given a list of ingredients. Various state-of-the-art methods have been applied to increase quality of generated recipes, enforce the inclusion of given ingredients, eliminate hallucinations, and reduce repetition, such as attention, and NeuroLogic Decoding [1]. Following Kiddon et al., the dataset used for this project is the Now You're Cooking! recipe library which is a data set containing over 150,000 recipes [2].
 
 I investigate four different models:
@@ -22,6 +31,7 @@ $$
 wherein $\hat{a}_i$ is the matched prefix of a positive constraint $a_i$, $D(a_i, y)$ is a boolean function indicating the occurrence of key phrase $a_i$ in a sequence $y$, S1 represents a reversible unsatisfaction (unsatisfied clause which could be satisfied in the future), and $\lambda$ is a hyper-parameter. In essence, this not only rewards candidates which fully satisfies a positive constraint but also rewards those that partially satisfy a positive constraint. For instance, if one of the input ingredients is "all purpose flour", the positive constraint would be "all" $\land$ "purpose" $\land$ "flour", and thus the candidate "all" would receive a reward of $\frac{1}{3}$. Finally, the top-$k$ candidates with the highest scores are chosen to continue to the next time step. In this way, the model is incentivized to include all input ingredients in the generated recipe and to avoid generating extra ingredients.
 
 ## Analysis
+![Loss Graphs](loss_graph.png)
 
 Training loss for Baseline 1 starts out the lowest and decreases the fastest compared to other models but despite this, it ends up with the second highest training loss. The dev loss shows a similar trend; starting with the lowest value however quickly plateauing and ends up with the highest dev loss. Its speedy convergence can be attributed to being the simplest model with the least number of parameters to train. However, this also means that it is the weakest model and since it is the only model without attention, it faces the bottleneck problem where the entire ingredients sequence must be captured in the final hidden state which loses a lot of context, resulting in the weakest generalization performance. The model clearly overfits ~4000-6000 iterations as the train loss keeps decreasing while the dev loss remains static.
 
@@ -52,6 +62,8 @@ Extension 1 surpasses Baseline 2 in BLEU-4 and METEOR scores, benefiting from th
 Extension 2 demonstrates the best performance across all metrics, achieving a staggering 46% increase in avg. % of given items compared to Baseline 2 and 2.03 fewer extra ingredients on average. This is because NeuroLogic Decoding incentivizes selecting candidates that satisfy positive constraints (input ingredients) by boosting their scores and penalizing words which result in irreversible unsatisfaction (including an ingredient not in the input list). As a side effect, this also boosts BLEU-4 and METEOR scores as more ingredients in the ground-truth appear within the generated recipe.
 
 ## Qualitative Evaluation
+
+**Please see [this file](generated_31989101.csv) for 700+ qualitative examples.**
 
 Here I analyze the result of all four models given the ingredients below:
 **Ingredients:** 2 c sugar, 1/4 c lemon juice, 1 c water, 1/3 c orange juice, 8 c strawberries
