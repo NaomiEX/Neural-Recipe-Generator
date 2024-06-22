@@ -66,6 +66,7 @@ Extension 2 demonstrates the best performance across all metrics, achieving a st
 **Please see [this file](generated_31989101.csv) for 700+ qualitative examples.**
 
 Here I analyze the result of all four models given the ingredients below:
+
 **Ingredients:** 2 c sugar, 1/4 c lemon juice, 1 c water, 1/3 c orange juice, 8 c strawberries
 
 | Baseline 1                                                                                                                                                                                                                                                                                                                                                           | Baseline 2                                                                                                                                                                                                                                                                | Extension 1                                                                                                                                                                                                                               | Extension 2                                                                                                                                                                                                                                                                                        |
